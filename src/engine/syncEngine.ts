@@ -26,7 +26,18 @@ export async function pushSnapshot(pi: PiExecApi, config: PiSyncSuiteConfig): Pr
 
 export async function pullSnapshot(pi: PiExecApi, config: PiSyncSuiteConfig): Promise<SyncSummary> {
   const paths = getDefaultPaths();
-  await cloneIfMissing(pi, config.repoUrl, config.repoDir);
+  const cloned = await cloneIfMissing(pi, config.repoUrl, config.repoDir);
+  if (cloned) {
+    const backup = await createBackup(config, paths, "before applying initial clone");
+    const applied = await applySnapshot(config, paths.piDir);
+    config.lastConfigSyncAt = new Date().toISOString();
+    if (config.chat.autoDownload) config.lastChatSyncAt = config.lastConfigSyncAt;
+    await saveConfig(config, paths);
+    return {
+      changed: true,
+      message: `pi-sync: cloned remote, backed up ${backup.includedPaths.length} item(s), applied ${applied.length} item(s)`,
+    };
+  }
   await fetch(pi, config.repoDir);
   const incoming = await countIncomingCommits(pi, config.repoDir);
   if (incoming === 0) {

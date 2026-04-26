@@ -6,12 +6,13 @@ export interface GitExecOptions {
 
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
 
-export async function cloneIfMissing(pi: PiExecApi, repoUrl: string, repoDir: string): Promise<void> {
+export async function cloneIfMissing(pi: PiExecApi, repoUrl: string, repoDir: string): Promise<boolean> {
   const { pathExists } = await import("../utils/paths.js");
   const gitDir = await import("node:path").then((path) => path.join(repoDir, ".git"));
-  if (await pathExists(gitDir)) return;
+  if (await pathExists(gitDir)) return false;
   const result = await pi.exec("git", ["clone", repoUrl, repoDir], { env: GIT_ENV });
   assertOk(result, "git clone failed");
+  return true;
 }
 
 export async function statusPorcelain(pi: PiExecApi, repoDir: string): Promise<string> {

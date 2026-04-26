@@ -1,8 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { BackupManifest, PiSyncSuiteConfig, SyncPaths } from "./types.js";
-import { ensureDir, pathExists, resolveInside, timestampForFile } from "./paths.js";
-import { getSnapshotPaths } from "./snapshot.js";
+import type { BackupManifest, PiSyncSuiteConfig, SyncPaths } from "../types.js";
+import { ensureDir, pathExists, resolveInside, timestampForFile } from "../utils/paths.js";
+import { getSnapshotPaths } from "../snapshot/index.js";
 
 const MANIFEST_FILE = "manifest.json";
 

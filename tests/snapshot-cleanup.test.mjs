@@ -3,10 +3,10 @@ import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/p
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { planCleanup } from "../dist/cleanup.js";
-import { createDefaultConfig } from "../dist/config.js";
-import { getDefaultPaths } from "../dist/paths.js";
-import { applySnapshot, stageSnapshot } from "../dist/snapshot.js";
+import { planCleanup } from "../dist/cleanup/index.js";
+import { createDefaultConfig } from "../dist/config/index.js";
+import { getDefaultPaths } from "../dist/utils/paths.js";
+import { applySnapshot, stageSnapshot } from "../dist/snapshot/index.js";
 
 test("snapshot strips machine-local settings keys and merges downloaded settings", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-snapshot-"));

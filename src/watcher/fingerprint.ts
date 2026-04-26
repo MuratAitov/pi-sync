@@ -1,8 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { PiSyncSuiteConfig, SyncPaths } from "./types.js";
-import { pathExists, resolveInside } from "./paths.js";
-import { getSnapshotPaths } from "./snapshot.js";
+import type { PiSyncSuiteConfig, SyncPaths } from "../types.js";
+import { pathExists, resolveInside } from "../utils/paths.js";
+import { getSnapshotPaths } from "../snapshot/index.js";
 
 export async function createSnapshotFingerprint(
   config: PiSyncSuiteConfig,

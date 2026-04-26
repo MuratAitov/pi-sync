@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
-import { DEFAULT_POLICY } from "./policy.js";
-import { getDefaultPaths, pathExists } from "./paths.js";
-import type { PiSyncSuiteConfig, SyncPaths } from "./types.js";
+import { DEFAULT_POLICY } from "../snapshot/policy.js";
+import { getDefaultPaths, pathExists } from "../utils/paths.js";
+import type { PiSyncSuiteConfig, SyncPaths } from "../types.js";
 
 export const CONFIG_VERSION = 1;
 

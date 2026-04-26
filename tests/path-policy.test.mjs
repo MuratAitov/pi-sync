@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { normalizePortablePath, resolveInside, toRepoPath } from "../dist/paths.js";
+import { normalizePortablePath, resolveInside, toRepoPath } from "../dist/utils/paths.js";
 import {
   DEFAULT_POLICY,
   getOptionalStoreChoices,
   getPortableSyncPaths,
   shouldNeverSync,
-} from "../dist/policy.js";
+} from "../dist/snapshot/policy.js";
 
 test("portable path helpers reject traversal and normalize safe paths", () => {
   assert.equal(normalizePortablePath("./themes\\dark/./config.json"), "themes/dark/config.json");

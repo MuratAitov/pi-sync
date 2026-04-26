@@ -1,5 +1,5 @@
 import type { CleanupCandidate, PiSyncSuiteConfig, SyncPaths } from "../types.js";
-import { getOptionalStoreChoices } from "../policy.js";
+import { getOptionalStoreChoices } from "../snapshot/policy.js";
 
 export function formatStatus(config: PiSyncSuiteConfig | null, paths: SyncPaths): string {
   if (!config) {

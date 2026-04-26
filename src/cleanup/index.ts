@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { CleanupCandidate, PiSyncSuiteConfig, SyncPaths } from "./types.js";
-import { pathExists } from "./paths.js";
+import type { CleanupCandidate, PiSyncSuiteConfig, SyncPaths } from "../types.js";
+import { pathExists } from "../utils/paths.js";
 
 export async function planCleanup(
   config: PiSyncSuiteConfig,

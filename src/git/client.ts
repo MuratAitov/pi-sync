@@ -1,4 +1,4 @@
-import type { PiExecApi } from "./types.js";
+import type { PiExecApi } from "../types.js";
 
 export interface GitExecOptions {
   repoDir?: string;
@@ -7,7 +7,7 @@ export interface GitExecOptions {
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
 
 export async function cloneIfMissing(pi: PiExecApi, repoUrl: string, repoDir: string): Promise<void> {
-  const { pathExists } = await import("./paths.js");
+  const { pathExists } = await import("../utils/paths.js");
   const gitDir = await import("node:path").then((path) => path.join(repoDir, ".git"));
   if (await pathExists(gitDir)) return;
   const result = await pi.exec("git", ["clone", repoUrl, repoDir], { env: GIT_ENV });

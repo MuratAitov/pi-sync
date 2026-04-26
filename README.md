@@ -56,6 +56,27 @@ The optional pull interval defaults to `1440` minutes. The extension stores its 
 - `/sync-include <path>` includes a relative Pi agent path in future snapshots.
 - `/sync-exclude <path>` excludes a relative Pi agent path from future snapshots.
 
+## Project Structure
+
+```text
+src/
+  index.ts                 thin Pi package entrypoint
+  extension/               Pi lifecycle and command registration
+  config/                  config defaults, loading, validation, persistence
+  engine/                  high-level push/pull orchestration
+  git/                     non-interactive Git client helpers
+  snapshot/                safe file staging/apply and path policy
+  chat/                    Pi session scanning and chat export
+  backup/                  local backup manifests and restore
+  cleanup/                 retention planning and cleanup apply
+  watcher/                 lightweight polling fingerprints for auto push
+  doctor/                  diagnostics
+  ui/                      status, dashboard, and command text rendering
+  utils/                   cross-platform path helpers
+tests/                     node:test smoke and regression coverage
+scripts/                   development utilities
+```
+
 ## Auto Modes
 
 `/sync-setup` starts in `full-auto`.

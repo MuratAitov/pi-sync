@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import type { PathPolicy } from "./types.js";
-import { normalizePortablePath, resolveInside } from "./paths.js";
+import type { PathPolicy } from "../types.js";
+import { normalizePortablePath, resolveInside } from "../utils/paths.js";
 
 export const DEFAULT_POLICY: PathPolicy = {
   safeRootFiles: ["settings.json", "keybindings.json"],

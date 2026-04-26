@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { PiSyncSuiteConfig } from "./types.js";
-import { ensureDir, pathExists, resolveInside } from "./paths.js";
+import type { PiSyncSuiteConfig } from "../types.js";
+import { ensureDir, pathExists, resolveInside } from "../utils/paths.js";
 import { assertSafeSource, getPortableSyncPaths, scanForSecrets, shouldNeverSync } from "./policy.js";
 
 export async function stageSnapshot(config: PiSyncSuiteConfig, piDir: string): Promise<string[]> {

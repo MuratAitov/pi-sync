@@ -1,10 +1,10 @@
-import type { PiExecApi, PiSyncSuiteConfig, SyncSummary } from "./types.js";
-import { getDefaultPaths } from "./paths.js";
-import { cloneIfMissing, commitAll, countIncomingCommits, fetch, pullFastForward, push } from "./git.js";
-import { applySnapshot, stageSnapshot } from "./snapshot.js";
-import { saveConfig } from "./config.js";
-import { exportPiChats } from "./chat/index.js";
-import { createBackup } from "./backup.js";
+import type { PiExecApi, PiSyncSuiteConfig, SyncSummary } from "../types.js";
+import { getDefaultPaths } from "../utils/paths.js";
+import { cloneIfMissing, commitAll, countIncomingCommits, fetch, pullFastForward, push } from "../git/client.js";
+import { applySnapshot, stageSnapshot } from "../snapshot/index.js";
+import { saveConfig } from "../config/index.js";
+import { exportPiChats } from "../chat/index.js";
+import { createBackup } from "../backup/index.js";
 
 export async function pushSnapshot(pi: PiExecApi, config: PiSyncSuiteConfig): Promise<SyncSummary> {
   const paths = getDefaultPaths();

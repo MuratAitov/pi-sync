@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import type { SyncPaths } from "./types.js";
+import type { SyncPaths } from "../types.js";
 
 export function getPiDir(): string {
   return process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent");

@@ -1,5 +1,5 @@
-import type { DoctorCheck, PiExecApi, PiSyncSuiteConfig, SyncPaths } from "./types.js";
-import { pathExists } from "./paths.js";
+import type { DoctorCheck, PiExecApi, PiSyncSuiteConfig, SyncPaths } from "../types.js";
+import { pathExists } from "../utils/paths.js";
 
 export async function runDoctor(
   pi: PiExecApi,

@@ -1,12 +1,15 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { AutoSyncMode, PiSyncSuiteConfig } from "./types.js";
 import { createDefaultConfig, isAutoPullEnabled, isAutoPushEnabled, loadConfig, saveConfig } from "./config.js";
-import { getDefaultPaths } from "./paths.js";
+import { getDefaultPaths, normalizePortablePath } from "./paths.js";
+import { getOptionalStoreChoices, shouldNeverSync } from "./policy.js";
 import { pushSnapshot, pullSnapshot } from "./syncEngine.js";
 import { exportPiChats } from "./chat/index.js";
-import { planCleanup } from "./cleanup.js";
+import { applyCleanup, planCleanup } from "./cleanup.js";
 import { formatCleanupPreview, formatStatus } from "./ui/formatters.js";
+import { renderCommandHelp, renderStoreThisTooChoices } from "./ui/index.js";
 
 export default function piSyncSuite(pi: ExtensionAPI): void {
   let configPromise = loadConfig().catch(() => null);
@@ -123,6 +126,21 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("sync-dashboard", {
+    description: "Show Pi Sync Suite dashboard",
+    handler: async (_args, ctx) => {
+      const config = await currentConfig();
+      ctx.ui.notify(formatStatus(config, paths), "info");
+    },
+  });
+
+  pi.registerCommand("sync-help", {
+    description: "Show Pi Sync Suite commands",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify(renderCommandHelp(), "info");
+    },
+  });
+
   pi.registerCommand("sync-push", {
     description: "Upload portable Pi config and chat exports",
     handler: async (_args, ctx) => {
@@ -161,6 +179,74 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("sync-clean-run", {
+    description: "Delete cleanup candidates after confirmation",
+    handler: async (_args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      const candidates = await planCleanup(config, paths);
+      ctx.ui.notify(formatCleanupPreview(candidates), candidates.length ? "warning" : "info");
+      if (candidates.length === 0) return;
+      const confirmed = await ctx.ui.confirm("pi-sync cleanup", `Delete ${candidates.length} cleanup candidate(s)?`);
+      if (!confirmed) {
+        ctx.ui.notify("pi-sync cleanup cancelled", "warning");
+        return;
+      }
+      const deleted = await applyCleanup(candidates);
+      ctx.ui.notify(`pi-sync cleanup: deleted ${deleted} item(s)`, "info");
+    },
+  });
+
+  pi.registerCommand("sync-auto", {
+    description: "Set automation mode: /sync-auto full-auto|config-only-auto|chats-manual|manual|off",
+    handler: async (args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      const requested = (args ?? "").trim();
+      const mode = requested
+        ? parseAutoMode(requested)
+        : parseAutoMode(await ctx.ui.select("Pi sync auto mode", AUTO_MODES));
+      if (!mode) {
+        ctx.ui.notify(`pi-sync: mode must be one of ${AUTO_MODES.join(", ")}`, "error");
+        return;
+      }
+      config.autoMode = mode;
+      applyModeDefaults(config);
+      await saveConfig(config, paths);
+      configPromise = Promise.resolve(config);
+      startBackgroundWork(ctx);
+      ctx.ui.setStatus("pi-sync", `${config.autoMode} -> ${config.repoUrl}`);
+      ctx.ui.notify(`pi-sync: auto mode set to ${mode}`, "info");
+    },
+  });
+
+  pi.registerCommand("sync-store-this-too", {
+    description: "Opt into an optional safe path: /sync-store-this-too [path]",
+    handler: async (args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      const rawPath = (args ?? "").trim();
+      const choices = getOptionalStoreChoices(config.policy);
+      const selected = rawPath || (await choosePath(ctx, choices, config.policy.includedPaths));
+      if (!selected) {
+        ctx.ui.notify(renderStoreThisTooChoices(choices, { alreadyIncluded: config.policy.includedPaths }), "info");
+        return;
+      }
+      const portablePath = normalizePortablePath(selected);
+      if (!portablePath || shouldNeverSync(portablePath, config.policy)) {
+        ctx.ui.notify(`pi-sync: refusing unsafe path ${selected}`, "error");
+        return;
+      }
+      if (!config.policy.includedPaths.includes(portablePath)) {
+        config.policy.includedPaths.push(portablePath);
+        config.policy.includedPaths.sort();
+      }
+      await saveConfig(config, paths);
+      configPromise = Promise.resolve(config);
+      ctx.ui.notify(`pi-sync: will store ${portablePath}`, "info");
+    },
+  });
+
   async function requireConfig(ctx: { ui: { notify(message: string, type?: "info" | "warning" | "error"): void } }) {
     const config = await currentConfig();
     if (!config) {
@@ -168,6 +254,32 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     }
     return config;
   }
+}
+
+const AUTO_MODES: AutoSyncMode[] = ["full-auto", "config-only-auto", "chats-manual", "manual", "off"];
+
+function parseAutoMode(value: string | undefined): AutoSyncMode | undefined {
+  if (!value) return undefined;
+  return AUTO_MODES.find((mode) => mode === value.trim());
+}
+
+function applyModeDefaults(config: PiSyncSuiteConfig): void {
+  config.chat.autoExport = config.autoMode === "full-auto" || config.autoMode === "chats-manual";
+  config.chat.autoUpload = config.autoMode === "full-auto";
+  config.chat.autoDownload = config.autoMode === "full-auto";
+}
+
+async function choosePath(
+  ctx: { ui: { select(title: string, options: string[]): Promise<string | undefined>; input(title: string, placeholder?: string): Promise<string | undefined> } },
+  choices: string[],
+  included: string[],
+): Promise<string | undefined> {
+  const selectable = choices.filter((choice) => !included.includes(choice));
+  if (selectable.length > 0) {
+    const selected = await ctx.ui.select("Store this too", [...selectable, "Manual path"]);
+    if (selected !== "Manual path") return selected;
+  }
+  return ctx.ui.input("Path to store", "AGENTS.md");
 }
 
 function errorMessage(error: unknown): string {

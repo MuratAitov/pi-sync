@@ -21,6 +21,9 @@ This package is intentionally implemented from scratch. It is inspired by the id
 - `/sync-pull` downloads remote updates and applies portable config.
 - `/sync-export-chat` exports local Pi sessions to Markdown and JSON metadata.
 - `/sync-clean-preview` previews cleanup candidates without deleting anything.
+- `/sync-clean-run` deletes cleanup candidates only after confirmation.
+- `/sync-auto <mode>` changes automation mode.
+- `/sync-store-this-too [path]` opts into an optional path.
 
 ## Development
 

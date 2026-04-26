@@ -4,6 +4,7 @@ import { cloneIfMissing, commitAll, countIncomingCommits, fetch, pullFastForward
 import { applySnapshot, stageSnapshot } from "./snapshot.js";
 import { saveConfig } from "./config.js";
 import { exportPiChats } from "./chat/index.js";
+import { createBackup } from "./backup.js";
 
 export async function pushSnapshot(pi: PiExecApi, config: PiSyncSuiteConfig): Promise<SyncSummary> {
   const paths = getDefaultPaths();
@@ -32,9 +33,13 @@ export async function pullSnapshot(pi: PiExecApi, config: PiSyncSuiteConfig): Pr
     return { changed: false, message: "pi-sync: already up to date" };
   }
   await pullFastForward(pi, config.repoDir);
+  const backup = await createBackup(config, paths, `before applying ${incoming} remote commit(s)`);
   const applied = await applySnapshot(config, paths.piDir);
   config.lastConfigSyncAt = new Date().toISOString();
   if (config.chat.autoDownload) config.lastChatSyncAt = config.lastConfigSyncAt;
   await saveConfig(config, paths);
-  return { changed: true, message: `pi-sync: pulled ${incoming} commit(s), applied ${applied.length} item(s)` };
+  return {
+    changed: true,
+    message: `pi-sync: pulled ${incoming} commit(s), backed up ${backup.includedPaths.length} item(s), applied ${applied.length} item(s)`,
+  };
 }

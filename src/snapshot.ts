@@ -43,7 +43,7 @@ export async function applySnapshot(config: PiSyncSuiteConfig, piDir: string): P
   return applied;
 }
 
-function getSnapshotPaths(config: PiSyncSuiteConfig, includeChatExports: boolean): string[] {
+export function getSnapshotPaths(config: PiSyncSuiteConfig, includeChatExports: boolean): string[] {
   const paths = new Set(getPortableSyncPaths(config.policy));
   if (includeChatExports) paths.add("sync-suite-chat-exports");
   return [...paths].sort();

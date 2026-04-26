@@ -76,6 +76,7 @@ export interface PiSyncSuiteConfig {
   autoMode: AutoSyncMode;
   pullIntervalMinutes: number;
   pushDebounceMs: number;
+  watchIntervalMs: number;
   chat: ChatSyncConfig;
   retention: RetentionPolicy;
   policy: PathPolicy;
@@ -93,4 +94,19 @@ export interface CleanupCandidate {
   reason: string;
   sizeBytes?: number;
   modifiedAt?: string;
+}
+
+export interface BackupManifest {
+  id: string;
+  createdAt: string;
+  reason: string;
+  piDir: string;
+  filesDir: string;
+  includedPaths: string[];
+}
+
+export interface DoctorCheck {
+  name: string;
+  ok: boolean;
+  message: string;
 }

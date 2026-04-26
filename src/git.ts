@@ -57,6 +57,18 @@ export async function pullFastForward(pi: PiExecApi, repoDir: string): Promise<v
   );
 }
 
+export async function diffStat(pi: PiExecApi, repoDir: string): Promise<string> {
+  const result = await pi.exec("git", ["-C", repoDir, "diff", "--stat"], { env: GIT_ENV });
+  assertOk(result, "git diff failed");
+  return result.stdout.trim();
+}
+
+export async function logOneline(pi: PiExecApi, repoDir: string, count = 8): Promise<string> {
+  const result = await pi.exec("git", ["-C", repoDir, "log", "--oneline", `-${count}`], { env: GIT_ENV });
+  assertOk(result, "git log failed");
+  return result.stdout.trim();
+}
+
 function assertOk(result: { code: number; stderr?: string }, fallback: string): void {
   if (result.code !== 0) {
     throw new Error(result.stderr?.trim() || fallback);

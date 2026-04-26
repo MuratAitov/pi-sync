@@ -1,6 +1,4 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { AutoSyncMode, PiSyncSuiteConfig } from "./types.js";
 import { createDefaultConfig, isAutoPullEnabled, isAutoPushEnabled, loadConfig, saveConfig } from "./config.js";
 import { getDefaultPaths, normalizePortablePath } from "./paths.js";
@@ -10,12 +8,19 @@ import { exportPiChats } from "./chat/index.js";
 import { applyCleanup, planCleanup } from "./cleanup.js";
 import { formatCleanupPreview, formatStatus } from "./ui/formatters.js";
 import { renderCommandHelp, renderStoreThisTooChoices } from "./ui/index.js";
+import { createSnapshotFingerprint } from "./watch.js";
+import { createBackup, listBackups, restoreBackup } from "./backup.js";
+import { formatDoctor, runDoctor } from "./doctor.js";
+import { cloneIfMissing, diffStat, logOneline } from "./git.js";
+import { stageSnapshot } from "./snapshot.js";
 
 export default function piSyncSuite(pi: ExtensionAPI): void {
   let configPromise = loadConfig().catch(() => null);
   let pullTimer: ReturnType<typeof setInterval> | undefined;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
   let pushDebounce: ReturnType<typeof setTimeout> | undefined;
-  let settingsWatcher: { close(): void } | undefined;
+  let lastSnapshotFingerprint: string | undefined;
+  let autoPushRunning = false;
 
   const paths = getDefaultPaths();
 
@@ -30,11 +35,12 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
 
   function stopBackgroundWork() {
     if (pullTimer) clearInterval(pullTimer);
+    if (pollTimer) clearInterval(pollTimer);
     if (pushDebounce) clearTimeout(pushDebounce);
-    settingsWatcher?.close();
     pullTimer = undefined;
+    pollTimer = undefined;
     pushDebounce = undefined;
-    settingsWatcher = undefined;
+    lastSnapshotFingerprint = undefined;
   }
 
   function startBackgroundWork(ctx: { ui: { notify(message: string, type?: "info" | "warning" | "error"): void } }) {
@@ -50,21 +56,47 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
         }, intervalMs);
       }
       if (isAutoPushEnabled(config)) {
-        const settingsPath = path.join(paths.piDir, "settings.json");
-        try {
-          settingsWatcher = fs.watch(settingsPath, () => {
-            if (pushDebounce) clearTimeout(pushDebounce);
-            pushDebounce = setTimeout(() => {
-              void pushSnapshot(pi, config).catch((error: unknown) => {
-                ctx.ui.notify(`pi-sync push error: ${errorMessage(error)}`, "error");
-              });
-            }, config.pushDebounceMs);
-          });
-        } catch {
-          // settings.json may not exist on a fresh install.
-        }
+        void createSnapshotFingerprint(config, paths).then((fingerprint) => {
+          lastSnapshotFingerprint = fingerprint;
+        });
+        pollTimer = setInterval(() => {
+          void createSnapshotFingerprint(config, paths)
+            .then((fingerprint) => {
+              if (lastSnapshotFingerprint === undefined) {
+                lastSnapshotFingerprint = fingerprint;
+                return;
+              }
+              if (fingerprint !== lastSnapshotFingerprint) {
+                scheduleAutoPush(config, ctx);
+              }
+            })
+            .catch((error: unknown) => {
+              ctx.ui.notify(`pi-sync watcher error: ${errorMessage(error)}`, "error");
+            });
+        }, Math.max(5000, config.watchIntervalMs));
       }
     });
+  }
+
+  function scheduleAutoPush(
+    config: PiSyncSuiteConfig,
+    ctx: { ui: { notify(message: string, type?: "info" | "warning" | "error"): void } },
+  ): void {
+    if (pushDebounce) clearTimeout(pushDebounce);
+    pushDebounce = setTimeout(() => {
+      if (autoPushRunning) return;
+      autoPushRunning = true;
+      void pushSnapshot(pi, config)
+        .then(async () => {
+          lastSnapshotFingerprint = await createSnapshotFingerprint(config, paths);
+        })
+        .catch((error: unknown) => {
+          ctx.ui.notify(`pi-sync push error: ${errorMessage(error)}`, "error");
+        })
+        .finally(() => {
+          autoPushRunning = false;
+        });
+    }, config.pushDebounceMs);
   }
 
   pi.on("session_start", async (_event, ctx) => {
@@ -151,6 +183,17 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("sync", {
+    description: "Run pull then push according to the current configuration",
+    handler: async (_args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      const pulled = await pullSnapshot(pi, config);
+      const pushed = await pushSnapshot(pi, config);
+      ctx.ui.notify(`${pulled.message}\n${pushed.message}`, "info");
+    },
+  });
+
   pi.registerCommand("sync-pull", {
     description: "Download remote updates and apply portable Pi config",
     handler: async (_args, ctx) => {
@@ -166,6 +209,130 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     handler: async (_args, ctx) => {
       const results = await exportPiChats({ piDir: paths.piDir, exportsDir: paths.chatExportDir });
       ctx.ui.notify(`pi-sync: exported ${results.length} chat session(s)`, "info");
+    },
+  });
+
+  pi.registerCommand("sync-export-chats", {
+    description: "Export local Pi sessions to Markdown and JSON metadata",
+    handler: async (_args, ctx) => {
+      const results = await exportPiChats({ piDir: paths.piDir, exportsDir: paths.chatExportDir });
+      ctx.ui.notify(`pi-sync: exported ${results.length} chat session(s)`, "info");
+    },
+  });
+
+  pi.registerCommand("sync-chat-status", {
+    description: "Show chat sync status",
+    handler: async (_args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      ctx.ui.notify(
+        [
+          "Pi Sync Suite chat",
+          "",
+          `Auto export: ${config.chat.autoExport ? "on" : "off"}`,
+          `Auto upload: ${config.chat.autoUpload ? "on" : "off"}`,
+          `Auto download: ${config.chat.autoDownload ? "on" : "off"}`,
+          `Format: ${config.chat.exportFormat}`,
+          `Exports: ${paths.chatExportDir}`,
+          `Last chat sync: ${config.lastChatSyncAt ?? "never"}`,
+        ].join("\n"),
+        "info",
+      );
+    },
+  });
+
+  pi.registerCommand("sync-chat-upload", {
+    description: "Export local chats and upload them with the snapshot",
+    handler: async (_args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      const results = await exportPiChats({ piDir: paths.piDir, exportsDir: paths.chatExportDir });
+      const previous = config.chat.autoUpload;
+      config.chat.autoUpload = true;
+      const summary = await pushSnapshot(pi, config);
+      config.chat.autoUpload = previous;
+      await saveConfig(config, paths);
+      ctx.ui.notify(`pi-sync: exported ${results.length} chat session(s)\n${summary.message}`, "info");
+    },
+  });
+
+  pi.registerCommand("sync-chat-download", {
+    description: "Download synced chat exports from the remote repository",
+    handler: async (_args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      const previous = config.chat.autoDownload;
+      config.chat.autoDownload = true;
+      const summary = await pullSnapshot(pi, config);
+      config.chat.autoDownload = previous;
+      await saveConfig(config, paths);
+      ctx.ui.notify(summary.message, "info");
+    },
+  });
+
+  pi.registerCommand("sync-diff", {
+    description: "Show pending local snapshot diff against the sync repository",
+    handler: async (_args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      await cloneIfMissing(pi, config.repoUrl, config.repoDir);
+      await stageSnapshot(config, paths.piDir);
+      const diff = await diffStat(pi, config.repoDir);
+      ctx.ui.notify(diff || "pi-sync: no local snapshot diff", "info");
+    },
+  });
+
+  pi.registerCommand("sync-log", {
+    description: "Show recent sync repository commits",
+    handler: async (_args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      await cloneIfMissing(pi, config.repoUrl, config.repoDir);
+      ctx.ui.notify((await logOneline(pi, config.repoDir)) || "pi-sync: no commits", "info");
+    },
+  });
+
+  pi.registerCommand("sync-doctor", {
+    description: "Run Pi Sync Suite diagnostics",
+    handler: async (_args, ctx) => {
+      const config = await currentConfig();
+      ctx.ui.notify(formatDoctor(await runDoctor(pi, config, paths)), "info");
+    },
+  });
+
+  pi.registerCommand("sync-backup", {
+    description: "Create a local backup of current managed Pi files",
+    handler: async (_args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      const backup = await createBackup(config, paths, "manual backup");
+      ctx.ui.notify(`pi-sync: backup ${backup.id} created with ${backup.includedPaths.length} item(s)`, "info");
+    },
+  });
+
+  pi.registerCommand("sync-backups", {
+    description: "List local backups",
+    handler: async (_args, ctx) => {
+      const backups = await listBackups(paths);
+      ctx.ui.notify(
+        backups.length
+          ? backups.map((backup) => `${backup.id}  ${backup.reason}  ${backup.includedPaths.length} item(s)`).join("\n")
+          : "pi-sync: no backups",
+        "info",
+      );
+    },
+  });
+
+  pi.registerCommand("sync-restore", {
+    description: "Restore a local backup: /sync-restore [backup-id|latest]",
+    handler: async (args, ctx) => {
+      const id = (args ?? "").trim() || "latest";
+      const restored = await restoreBackup(paths, id);
+      if (!restored) {
+        ctx.ui.notify(`pi-sync: backup not found: ${id}`, "error");
+        return;
+      }
+      ctx.ui.notify(`pi-sync: restored backup ${restored.id}`, "info");
     },
   });
 

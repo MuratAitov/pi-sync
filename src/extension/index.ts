@@ -153,6 +153,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       ctx.ui.setStatus("pi-sync", `${config.autoMode} -> ${repoUrl}`);
       ctx.ui.setWidget("pi-sync", formatStatusWidget(config), { placement: "belowEditor" });
       ctx.ui.notify(`pi-sync configured: ${repoUrl}`, "info");
+      await pullSnapshot(pi, config);
       await pushSnapshot(pi, config);
       startBackgroundWork(ctx);
     },

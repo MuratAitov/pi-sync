@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "keywords": [
+    "pi-package",
     "pi",
     "pi-extension",
     "sync",
@@ -26,11 +27,13 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@mariozechner/pi-coding-agent": "^0.1.0",
+    "@mariozechner/pi-coding-agent": "^0.65.2",
     "@types/node": "^20.17.0",
     "typescript": "^5.8.0"
   },
   "pi": {
-    "extension": "dist/index.js"
+    "extensions": [
+      "./src/index.ts"
+    ]
   }
 }

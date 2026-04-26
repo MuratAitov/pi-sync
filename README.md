@@ -13,6 +13,15 @@ This package is intentionally implemented from scratch. It is inspired by the id
 - Native Pi commands and status output.
 - Cross-platform behavior on Linux, macOS, and Windows.
 
+## Commands
+
+- `/sync-setup <ssh-repo-url> [pull-interval-minutes]` configures the extension.
+- `/sync-status` shows mode, paths, and last sync timestamps.
+- `/sync-push` uploads portable config and chat exports.
+- `/sync-pull` downloads remote updates and applies portable config.
+- `/sync-export-chat` exports local Pi sessions to Markdown and JSON metadata.
+- `/sync-clean-preview` previews cleanup candidates without deleting anything.
+
 ## Development
 
 ```bash

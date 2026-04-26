@@ -1,8 +1,10 @@
-export type NotifyLevel = "info" | "success" | "warning" | "error";
+export type NotifyLevel = "info" | "warning" | "error";
 
 export interface PiUi {
   notify(message: string, level?: NotifyLevel | string): void;
   setStatus?(key: string, value: string): void;
+  select?(title: string, options: string[]): Promise<string | undefined>;
+  confirm?(title: string, message: string): Promise<boolean>;
   input?(prompt: string, defaultValue?: string): Promise<string | undefined>;
 }
 

@@ -42,12 +42,30 @@ export async function fetch(pi: PiExecApi, repoDir: string): Promise<void> {
 }
 
 export async function countIncomingCommits(pi: PiExecApi, repoDir: string): Promise<number> {
+  if (!(await hasLocalHead(pi, repoDir))) return 0;
+  if (!(await hasUpstream(pi, repoDir))) return 0;
   const result = await pi.exec("git", ["-C", repoDir, "rev-list", "HEAD..@{u}", "--count"], {
     env: GIT_ENV,
   });
   assertOk(result, "git rev-list failed");
   const count = Number.parseInt(result.stdout.trim(), 10);
   return Number.isFinite(count) ? count : 0;
+}
+
+async function hasLocalHead(pi: PiExecApi, repoDir: string): Promise<boolean> {
+  const result = await pi.exec("git", ["-C", repoDir, "rev-parse", "--verify", "HEAD"], {
+    env: GIT_ENV,
+  });
+  return result.code === 0;
+}
+
+async function hasUpstream(pi: PiExecApi, repoDir: string): Promise<boolean> {
+  const result = await pi.exec(
+    "git",
+    ["-C", repoDir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    { env: GIT_ENV },
+  );
+  return result.code === 0;
 }
 
 export async function pullFastForward(pi: PiExecApi, repoDir: string): Promise<void> {

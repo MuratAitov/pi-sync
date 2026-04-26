@@ -173,6 +173,8 @@ test("raw session sync is explicit and applies live Pi sessions", async () => {
     await writeFile(sessionPath, `${JSON.stringify({ role: "user", content: "secret = abcdefghijklmnopqrstuvwxyz" })}\n`, "utf8");
 
     await stageSnapshot(config, piDir);
+    const gitignore = await readFile(path.join(paths.repoDir, ".gitignore"), "utf8");
+    assert.doesNotMatch(gitignore, /^sessions\/$/m);
     await rm(path.join(piDir, "sessions"), { recursive: true, force: true });
     await applySnapshot(config, piDir);
 

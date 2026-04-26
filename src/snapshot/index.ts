@@ -158,7 +158,9 @@ async function writeRepoGitignore(config: PiSyncSuiteConfig): Promise<void> {
     "# Managed by pi-sync-suite",
     "",
     "# Secrets and machine-local state",
-    ...config.policy.neverSyncNames.map((name) => `${name}${name.includes(".") ? "" : "/"}`),
+    ...config.policy.neverSyncNames
+      .filter((name) => !config.policy.dangerouslyAllowedNames.includes(name))
+      .map((name) => `${name}${name.includes(".") ? "" : "/"}`),
     "",
     "*.log",
     ".DS_Store",

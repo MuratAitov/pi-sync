@@ -1,0 +1,36 @@
+{
+  "name": "pi-sync-suite",
+  "version": "0.1.0",
+  "description": "Cross-platform Pi extension for config sync, chat exports, safe cleanup, and native TUI controls.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "sync",
+    "git",
+    "chat-export"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.1.0",
+    "@types/node": "^20.17.0",
+    "typescript": "^5.8.0"
+  },
+  "pi": {
+    "extension": "dist/index.js"
+  }
+}

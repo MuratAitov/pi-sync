@@ -43,3 +43,12 @@ export function formatCleanupPreview(candidates: CleanupCandidate[]): string {
   }
   return lines.join("\n");
 }
+
+export function formatStatusWidget(config: PiSyncSuiteConfig | null): string[] {
+  if (!config) return ["Pi Sync Suite: not configured", "Run /sync-setup <ssh-repo-url>"];
+  return [
+    `Pi Sync Suite: ${config.autoMode}`,
+    `Remote: ${config.repoUrl}`,
+    `Config: ${config.lastConfigSyncAt ?? "never"} | Chat: ${config.lastChatSyncAt ?? "never"}`,
+  ];
+}

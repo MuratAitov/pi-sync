@@ -6,7 +6,7 @@ import { getOptionalStoreChoices, shouldNeverSync } from "./policy.js";
 import { pushSnapshot, pullSnapshot } from "./syncEngine.js";
 import { exportPiChats } from "./chat/index.js";
 import { applyCleanup, planCleanup } from "./cleanup.js";
-import { formatCleanupPreview, formatStatus } from "./ui/formatters.js";
+import { formatCleanupPreview, formatStatus, formatStatusWidget } from "./ui/formatters.js";
 import { renderCommandHelp, renderStoreThisTooChoices } from "./ui/index.js";
 import { createSnapshotFingerprint } from "./watch.js";
 import { createBackup, listBackups, restoreBackup } from "./backup.js";
@@ -103,9 +103,11 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     const config = await reloadConfig();
     if (!config) {
       ctx.ui.setStatus("pi-sync", "not configured");
+      ctx.ui.setWidget("pi-sync", formatStatusWidget(null), { placement: "belowEditor" });
       return;
     }
     ctx.ui.setStatus("pi-sync", `${config.autoMode} -> ${config.repoUrl}`);
+    ctx.ui.setWidget("pi-sync", formatStatusWidget(config), { placement: "belowEditor" });
     startBackgroundWork(ctx);
     if (isAutoPullEnabled(config)) {
       await pullSnapshot(pi, config).catch((error: unknown) => {
@@ -144,6 +146,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       await saveConfig(config, paths);
       configPromise = Promise.resolve(config);
       ctx.ui.setStatus("pi-sync", `${config.autoMode} -> ${repoUrl}`);
+      ctx.ui.setWidget("pi-sync", formatStatusWidget(config), { placement: "belowEditor" });
       ctx.ui.notify(`pi-sync configured: ${repoUrl}`, "info");
       await pushSnapshot(pi, config);
       startBackgroundWork(ctx);
@@ -383,6 +386,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       configPromise = Promise.resolve(config);
       startBackgroundWork(ctx);
       ctx.ui.setStatus("pi-sync", `${config.autoMode} -> ${config.repoUrl}`);
+      ctx.ui.setWidget("pi-sync", formatStatusWidget(config), { placement: "belowEditor" });
       ctx.ui.notify(`pi-sync: auto mode set to ${mode}`, "info");
     },
   });

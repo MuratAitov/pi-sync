@@ -44,13 +44,17 @@ The optional pull interval defaults to `1440` minutes. The extension stores its 
 - `/sync-chat-status` shows chat automation and export paths.
 - `/sync-chat-upload` exports chats and uploads them with the snapshot.
 - `/sync-chat-download` downloads synced chat exports from the remote.
+- `/sync-chat-auto export|upload|download on|off` changes chat automation flags.
 - `/sync-clean-preview` previews cleanup candidates without deleting anything.
 - `/sync-clean-run` deletes cleanup candidates only after confirmation.
+- `/sync-clean-policy chat=<n> backups=<n> days=<n> auto=on|off` changes retention settings.
 - `/sync-backup` creates a local backup of managed files.
 - `/sync-backups` lists local backups.
 - `/sync-restore [backup-id|latest]` restores a local backup.
 - `/sync-auto <mode>` changes automation mode. Valid modes are `full-auto`, `config-only-auto`, `chats-manual`, `manual`, and `off`.
 - `/sync-store-this-too [path]` opts into an optional path.
+- `/sync-include <path>` includes a relative Pi agent path in future snapshots.
+- `/sync-exclude <path>` excludes a relative Pi agent path from future snapshots.
 
 ## Auto Modes
 
@@ -93,6 +97,8 @@ You can pass a relative path directly:
 ```
 
 Paths are normalized to portable forward-slash form and must stay inside the Pi agent directory. Paths containing unsafe names are refused.
+
+`/sync-include` and `/sync-exclude` expose the same path policy directly for users who want manual control beyond the suggested optional choices.
 
 ## Chat Export And Import Behavior
 

@@ -273,6 +273,26 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("sync-chat-auto", {
+    description: "Set chat automation: /sync-chat-auto export|upload|download on|off",
+    handler: async (args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      const [field, rawValue] = (args ?? "").trim().split(/\s+/);
+      const value = parseOnOff(rawValue);
+      if (!isChatAutoField(field) || value === undefined) {
+        ctx.ui.notify("Usage: /sync-chat-auto export|upload|download on|off", "error");
+        return;
+      }
+      if (field === "export") config.chat.autoExport = value;
+      if (field === "upload") config.chat.autoUpload = value;
+      if (field === "download") config.chat.autoDownload = value;
+      await saveConfig(config, paths);
+      configPromise = Promise.resolve(config);
+      ctx.ui.notify(`pi-sync: chat auto ${field} ${value ? "on" : "off"}`, "info");
+    },
+  });
+
   pi.registerCommand("sync-diff", {
     description: "Show pending local snapshot diff against the sync repository",
     handler: async (_args, ctx) => {
@@ -418,12 +438,94 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("sync-include", {
+    description: "Include a relative Pi agent path in future snapshots",
+    handler: async (args, ctx) => {
+      await updatePathPolicy(args, ctx, "include");
+    },
+  });
+
+  pi.registerCommand("sync-exclude", {
+    description: "Exclude a relative Pi agent path from future snapshots",
+    handler: async (args, ctx) => {
+      await updatePathPolicy(args, ctx, "exclude");
+    },
+  });
+
+  pi.registerCommand("sync-clean-policy", {
+    description: "Set cleanup policy: /sync-clean-policy chat=<n> backups=<n> days=<n> auto=on|off",
+    handler: async (args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      const updates = parseKeyValues(args ?? "");
+      const chat = parseOptionalPositiveInt(updates.chat);
+      const backups = parseOptionalPositiveInt(updates.backups);
+      const days = parseOptionalPositiveInt(updates.days);
+      const auto = parseOnOff(updates.auto);
+      if (updates.chat !== undefined && chat === undefined) {
+        ctx.ui.notify("pi-sync: chat must be a positive number", "error");
+        return;
+      }
+      if (updates.backups !== undefined && backups === undefined) {
+        ctx.ui.notify("pi-sync: backups must be a positive number", "error");
+        return;
+      }
+      if (updates.days !== undefined && days === undefined) {
+        ctx.ui.notify("pi-sync: days must be a positive number", "error");
+        return;
+      }
+      if (updates.auto !== undefined && auto === undefined) {
+        ctx.ui.notify("pi-sync: auto must be on or off", "error");
+        return;
+      }
+      if (chat !== undefined) config.retention.keepChatExports = chat;
+      if (backups !== undefined) config.retention.keepBackups = backups;
+      if (days !== undefined) config.retention.maxAgeDays = days;
+      if (auto !== undefined) config.retention.autoApply = auto;
+      await saveConfig(config, paths);
+      configPromise = Promise.resolve(config);
+      ctx.ui.notify(
+        `pi-sync cleanup policy: chat=${config.retention.keepChatExports}, backups=${config.retention.keepBackups}, days=${config.retention.maxAgeDays}, auto=${config.retention.autoApply ? "on" : "off"}`,
+        "info",
+      );
+    },
+  });
+
   async function requireConfig(ctx: { ui: { notify(message: string, type?: "info" | "warning" | "error"): void } }) {
     const config = await currentConfig();
     if (!config) {
       ctx.ui.notify("pi-sync: not configured. Run /sync-setup <ssh-repo-url>", "warning");
     }
     return config;
+  }
+
+  async function updatePathPolicy(
+    args: string | undefined,
+    ctx: { ui: { notify(message: string, type?: "info" | "warning" | "error"): void; input(title: string, placeholder?: string): Promise<string | undefined> } },
+    action: "include" | "exclude",
+  ): Promise<void> {
+    const config = await requireConfig(ctx);
+    if (!config) return;
+    const entered = (args ?? "").trim() || (await ctx.ui.input(`Path to ${action}`, "AGENTS.md"))?.trim();
+    if (!entered) {
+      ctx.ui.notify(`pi-sync: ${action} cancelled`, "warning");
+      return;
+    }
+    const portablePath = normalizePortablePath(entered);
+    if (!portablePath || shouldNeverSync(portablePath, config.policy)) {
+      ctx.ui.notify(`pi-sync: refusing unsafe path ${entered}`, "error");
+      return;
+    }
+    if (action === "include") {
+      addUnique(config.policy.includedPaths, portablePath);
+      config.policy.excludedPaths = config.policy.excludedPaths.filter((item) => item !== portablePath);
+    } else {
+      addUnique(config.policy.excludedPaths, portablePath);
+      config.policy.includedPaths = config.policy.includedPaths.filter((item) => item !== portablePath);
+    }
+    await saveConfig(config, paths);
+    configPromise = Promise.resolve(config);
+    ctx.ui.notify(`pi-sync: ${action}d ${portablePath}`, "info");
   }
 }
 
@@ -438,6 +540,37 @@ function applyModeDefaults(config: PiSyncSuiteConfig): void {
   config.chat.autoExport = config.autoMode === "full-auto" || config.autoMode === "chats-manual";
   config.chat.autoUpload = config.autoMode === "full-auto";
   config.chat.autoDownload = config.autoMode === "full-auto";
+}
+
+function isChatAutoField(value: string | undefined): value is "export" | "upload" | "download" {
+  return value === "export" || value === "upload" || value === "download";
+}
+
+function parseOnOff(value: string | undefined): boolean | undefined {
+  if (value === "on" || value === "true" || value === "1") return true;
+  if (value === "off" || value === "false" || value === "0") return false;
+  return undefined;
+}
+
+function parseKeyValues(args: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const part of args.trim().split(/\s+/).filter(Boolean)) {
+    const index = part.indexOf("=");
+    if (index <= 0) continue;
+    values[part.slice(0, index)] = part.slice(index + 1);
+  }
+  return values;
+}
+
+function parseOptionalPositiveInt(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function addUnique(values: string[], value: string): void {
+  if (!values.includes(value)) values.push(value);
+  values.sort();
 }
 
 async function choosePath(

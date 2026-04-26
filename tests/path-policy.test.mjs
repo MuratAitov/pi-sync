@@ -42,6 +42,9 @@ test("store-this-too policy exposes optional safe choices and blocks never-sync 
     "sync-suite-chat-exports",
   ]);
   assert.equal(shouldNeverSync("sessions/transcript.jsonl", policy), true);
+  policy.dangerouslyAllowedNames.push("sessions");
+  assert.equal(shouldNeverSync("sessions/transcript.jsonl", policy), false);
+  policy.dangerouslyAllowedNames = [];
   assert.equal(shouldNeverSync("local/AGENTS.md", policy), false);
 
   assert.deepEqual(getPortableSyncPaths(policy), [

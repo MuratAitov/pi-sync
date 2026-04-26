@@ -157,3 +157,27 @@ test("snapshot skips chat exports with secret-like content instead of failing pu
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("raw session sync is explicit and applies live Pi sessions", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-raw-sessions-"));
+  try {
+    const piDir = path.join(root, "agent");
+    const paths = getDefaultPaths(piDir);
+    const config = createDefaultConfig("git@example.com:team/pi-config.git", paths);
+    config.chat.rawSessionSync = true;
+    config.policy.dangerouslyAllowedNames.push("sessions");
+    config.policy.includedPaths.push("sessions");
+
+    const sessionPath = path.join(piDir, "sessions", "--tmp-project--", "2026-04-26T00-00-00-000Z_test.jsonl");
+    await mkdir(path.dirname(sessionPath), { recursive: true });
+    await writeFile(sessionPath, `${JSON.stringify({ role: "user", content: "secret = abcdefghijklmnopqrstuvwxyz" })}\n`, "utf8");
+
+    await stageSnapshot(config, piDir);
+    await rm(path.join(piDir, "sessions"), { recursive: true, force: true });
+    await applySnapshot(config, piDir);
+
+    assert.match(await readFile(sessionPath, "utf8"), /secret = abcdefghijklmnopqrstuvwxyz/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

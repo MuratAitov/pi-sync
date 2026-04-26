@@ -240,6 +240,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
           `Auto export: ${config.chat.autoExport ? "on" : "off"}`,
           `Auto upload: ${config.chat.autoUpload ? "on" : "off"}`,
           `Auto download: ${config.chat.autoDownload ? "on" : "off"}`,
+          `Raw sessions: ${config.chat.rawSessionSync ? "on" : "off"}`,
           `Format: ${config.chat.exportFormat}`,
           `Exports: ${paths.chatExportDir}`,
           `Last chat sync: ${config.lastChatSyncAt ?? "never"}`,
@@ -295,6 +296,35 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       await saveConfig(config, paths);
       configPromise = Promise.resolve(config);
       ctx.ui.notify(`pi-sync: chat auto ${field} ${value ? "on" : "off"}`, "info");
+    },
+  });
+
+  pi.registerCommand("sync-sessions", {
+    description: "Dangerous opt-in for raw Pi session sync: /sync-sessions on|off",
+    handler: async (args, ctx) => {
+      const config = await requireConfig(ctx);
+      if (!config) return;
+      const value = parseOnOff((args ?? "").trim());
+      if (value === undefined) {
+        ctx.ui.notify("Usage: /sync-sessions on|off", "error");
+        return;
+      }
+      config.chat.rawSessionSync = value;
+      if (value) {
+        addUnique(config.policy.dangerouslyAllowedNames, "sessions");
+        addUnique(config.policy.includedPaths, "sessions");
+        config.policy.excludedPaths = config.policy.excludedPaths.filter((item) => item !== "sessions");
+        ctx.ui.notify(
+          "pi-sync: raw session sync enabled. This can upload full prompts, outputs, tool logs, and secrets. Use only with a private repo you trust.",
+          "warning",
+        );
+      } else {
+        config.policy.dangerouslyAllowedNames = config.policy.dangerouslyAllowedNames.filter((item) => item !== "sessions");
+        config.policy.includedPaths = config.policy.includedPaths.filter((item) => item !== "sessions");
+        ctx.ui.notify("pi-sync: raw session sync disabled", "info");
+      }
+      await saveConfig(config, paths);
+      configPromise = Promise.resolve(config);
     },
   });
 

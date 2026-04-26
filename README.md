@@ -45,6 +45,7 @@ The optional pull interval defaults to `1440` minutes. The extension stores its 
 - `/sync-chat-upload` exports chats and uploads them with the snapshot.
 - `/sync-chat-download` downloads synced chat exports from the remote.
 - `/sync-chat-auto export|upload|download on|off` changes chat automation flags.
+- `/sync-sessions on|off` explicitly enables or disables raw Pi `sessions/` sync.
 - `/sync-clean-preview` previews cleanup candidates without deleting anything.
 - `/sync-clean-run` deletes cleanup candidates only after confirmation.
 - `/sync-clean-policy chat=<n> backups=<n> days=<n> auto=on|off` changes retention settings.
@@ -136,6 +137,29 @@ In `full-auto`, `/sync-push` exports chats before staging and uploads `sync-suit
 
 There is no command that imports exported Markdown or metadata back into live Pi `sessions`. Pull behavior only applies the `sync-suite-chat-exports` directory when chat download is enabled, making exported transcripts available on the receiving machine without recreating original session JSONL files.
 
+## Raw Session Sync
+
+Markdown chat exports are safe for browsing, but they do not make `pi continue` or the session tree work on another machine. For that, enable raw session sync explicitly:
+
+```text
+/sync-sessions on
+/sync-push
+```
+
+Then on another Pi environment:
+
+```text
+/sync-pull
+```
+
+This syncs the real `sessions/` tree so Pi can see prior sessions. It is intentionally off by default because raw sessions may contain full prompts, model outputs, tool logs, file paths, and secrets. Use it only with a private repo you control.
+
+Disable it again with:
+
+```text
+/sync-sessions off
+```
+
 ## Cleanup
 
 Cleanup is preview-first:
@@ -192,7 +216,7 @@ These commands operate only on local `sync-suite-backups`; they do not force-pus
 The extension refuses any path containing these names:
 
 - `auth.json`
-- `sessions`
+- `sessions` unless `/sync-sessions on` was explicitly enabled
 - `git`
 - `npm`
 - `bin`

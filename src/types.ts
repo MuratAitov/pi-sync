@@ -58,6 +58,7 @@ export interface PathPolicy {
   includedPaths: string[];
   excludedPaths: string[];
   neverSyncNames: string[];
+  dangerouslyAllowedNames: string[];
   strippedSettingsKeys: string[];
 }
 
@@ -65,6 +66,7 @@ export interface ChatSyncConfig {
   autoExport: boolean;
   autoUpload: boolean;
   autoDownload: boolean;
+  rawSessionSync: boolean;
   exportFormat: ChatExportFormat;
   includeMetadata: boolean;
 }

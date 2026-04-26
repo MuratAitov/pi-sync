@@ -18,6 +18,7 @@ export function createDefaultConfig(repoUrl: string, paths: SyncPaths = getDefau
       autoExport: true,
       autoUpload: true,
       autoDownload: true,
+      rawSessionSync: false,
       exportFormat: "both",
       includeMetadata: true,
     },
@@ -83,6 +84,7 @@ function normalizeConfig(raw: Partial<PiSyncSuiteConfig>, paths: SyncPaths): PiS
       includedPaths: raw.policy?.includedPaths ?? defaults.policy.includedPaths,
       excludedPaths: raw.policy?.excludedPaths ?? defaults.policy.excludedPaths,
       neverSyncNames: raw.policy?.neverSyncNames ?? defaults.policy.neverSyncNames,
+      dangerouslyAllowedNames: raw.policy?.dangerouslyAllowedNames ?? defaults.policy.dangerouslyAllowedNames,
       strippedSettingsKeys: raw.policy?.strippedSettingsKeys ?? defaults.policy.strippedSettingsKeys,
     },
   };

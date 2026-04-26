@@ -21,6 +21,7 @@ export function formatStatus(config: PiSyncSuiteConfig | null, paths: SyncPaths)
     `Chat auto export: ${config.chat.autoExport ? "on" : "off"}`,
     `Chat auto upload: ${config.chat.autoUpload ? "on" : "off"}`,
     `Chat auto download: ${config.chat.autoDownload ? "on" : "off"}`,
+    `Raw sessions: ${config.chat.rawSessionSync ? "on" : "off"}`,
     `Pull interval: ${config.pullIntervalMinutes} min`,
     `Last config sync: ${config.lastConfigSyncAt ?? "never"}`,
     `Last chat sync: ${config.lastChatSyncAt ?? "never"}`,

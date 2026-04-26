@@ -99,6 +99,11 @@ async function copyDirectory(source: string, target: string, config?: PiSyncSuit
 }
 
 async function copyFileWithSecretScan(source: string, target: string, config: PiSyncSuiteConfig): Promise<void> {
+  if (isRawSessionPath(source) && config.chat.rawSessionSync) {
+    await ensureDir(path.dirname(target));
+    await fs.copyFile(source, target);
+    return;
+  }
   const hits = await scanForSecrets(source);
   if (hits.length > 0) {
     if (isChatExportPath(source)) {
@@ -113,6 +118,10 @@ async function copyFileWithSecretScan(source: string, target: string, config: Pi
 
 function isChatExportPath(filePath: string): boolean {
   return filePath.split(path.sep).includes("sync-suite-chat-exports");
+}
+
+function isRawSessionPath(filePath: string): boolean {
+  return filePath.split(path.sep).includes("sessions");
 }
 
 async function recordSkippedSecret(repoDir: string, source: string, hits: string[]): Promise<void> {

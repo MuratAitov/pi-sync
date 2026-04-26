@@ -10,6 +10,7 @@ export const DEFAULT_POLICY: PathPolicy = {
   optionalDirs: ["extensions", "sync-suite-chat-exports"],
   includedPaths: [],
   excludedPaths: [],
+  dangerouslyAllowedNames: [],
   neverSyncNames: [
     "auth.json",
     "sessions",
@@ -35,7 +36,9 @@ const SECRET_PATTERNS = [
 export function shouldNeverSync(portablePath: string, policy: PathPolicy): boolean {
   const clean = normalizePortablePath(portablePath);
   const parts = clean.split("/");
-  return parts.some((part) => policy.neverSyncNames.includes(part));
+  return parts.some(
+    (part) => policy.neverSyncNames.includes(part) && !policy.dangerouslyAllowedNames.includes(part),
+  );
 }
 
 export function getPortableSyncPaths(policy: PathPolicy): string[] {

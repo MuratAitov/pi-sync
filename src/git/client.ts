@@ -34,7 +34,7 @@ export async function commitAll(pi: PiExecApi, repoDir: string, message: string)
 }
 
 export async function push(pi: PiExecApi, repoDir: string): Promise<void> {
-  assertOk(await pi.exec("git", ["-C", repoDir, "push"], { env: GIT_ENV }), "git push failed");
+  assertOk(await pi.exec("git", ["-C", repoDir, "push", "-u", "origin", "HEAD"], { env: GIT_ENV }), "git push failed");
 }
 
 export async function fetch(pi: PiExecApi, repoDir: string): Promise<void> {

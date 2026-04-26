@@ -126,3 +126,34 @@ test("cleanup preview plans candidates without deleting files", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("snapshot skips chat exports with secret-like content instead of failing push", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-secret-chat-"));
+  try {
+    const piDir = path.join(root, "agent");
+    const paths = getDefaultPaths(piDir);
+    const config = createDefaultConfig("git@example.com:team/pi-config.git", paths);
+    config.chat.autoUpload = true;
+
+    await mkdir(paths.chatExportDir, { recursive: true });
+    await writeFile(path.join(piDir, "settings.json"), JSON.stringify({ theme: "dark" }), "utf8");
+    await writeFile(path.join(paths.chatExportDir, "safe.md"), "hello\n", "utf8");
+    await writeFile(path.join(paths.chatExportDir, "blocked.md"), "token = abcdefghijklmnopqrstuvwxyz\n", "utf8");
+
+    await stageSnapshot(config, piDir);
+
+    assert.equal(await readFile(path.join(paths.repoDir, "sync-suite-chat-exports", "safe.md"), "utf8"), "hello\n");
+    await assert.rejects(
+      () => readFile(path.join(paths.repoDir, "sync-suite-chat-exports", "blocked.md"), "utf8"),
+      /ENOENT/,
+    );
+    const report = await readFile(
+      path.join(paths.repoDir, "sync-suite-chat-exports", ".pi-sync-skipped-secrets.jsonl"),
+      "utf8",
+    );
+    assert.match(report, /blocked\.md/);
+    assert.match(report, /secret-like content detected/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

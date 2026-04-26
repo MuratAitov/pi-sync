@@ -21,6 +21,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
   let pushDebounce: ReturnType<typeof setTimeout> | undefined;
   let lastSnapshotFingerprint: string | undefined;
   let autoPushRunning = false;
+  let lastAutoPushError: string | undefined;
 
   const paths = getDefaultPaths();
 
@@ -91,7 +92,11 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
           lastSnapshotFingerprint = await createSnapshotFingerprint(config, paths);
         })
         .catch((error: unknown) => {
-          ctx.ui.notify(`pi-sync push error: ${errorMessage(error)}`, "error");
+          const message = errorMessage(error);
+          if (message !== lastAutoPushError) {
+            ctx.ui.notify(`pi-sync push error: ${message}`, "error");
+            lastAutoPushError = message;
+          }
         })
         .finally(() => {
           autoPushRunning = false;

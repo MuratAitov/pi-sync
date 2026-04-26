@@ -98,13 +98,33 @@ async function copyDirectory(source: string, target: string, config?: PiSyncSuit
   }
 }
 
-async function copyFileWithSecretScan(source: string, target: string, _config: PiSyncSuiteConfig): Promise<void> {
+async function copyFileWithSecretScan(source: string, target: string, config: PiSyncSuiteConfig): Promise<void> {
   const hits = await scanForSecrets(source);
   if (hits.length > 0) {
+    if (isChatExportPath(source)) {
+      await recordSkippedSecret(config.repoDir, source, hits);
+      return;
+    }
     throw new Error(`Secret-like content detected in ${source}`);
   }
   await ensureDir(path.dirname(target));
   await fs.copyFile(source, target);
+}
+
+function isChatExportPath(filePath: string): boolean {
+  return filePath.split(path.sep).includes("sync-suite-chat-exports");
+}
+
+async function recordSkippedSecret(repoDir: string, source: string, hits: string[]): Promise<void> {
+  const reportPath = path.join(repoDir, "sync-suite-chat-exports", ".pi-sync-skipped-secrets.jsonl");
+  await ensureDir(path.dirname(reportPath));
+  const entry = {
+    source,
+    skippedAt: new Date().toISOString(),
+    reason: "secret-like content detected",
+    patterns: hits,
+  };
+  await fs.appendFile(reportPath, JSON.stringify(entry) + "\n", "utf8");
 }
 
 async function copySettings(source: string, target: string, stripKeys: string[]): Promise<void> {

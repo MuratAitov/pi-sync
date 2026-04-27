@@ -204,7 +204,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
 
       if (sectionKey === "Status") {
         ctx.ui.notify(formatStatus(config, paths), "info");
-        continue;
+        return;
       }
 
       const requiredConfig = await requireConfig(ctx);

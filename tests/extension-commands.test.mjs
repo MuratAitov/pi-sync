@@ -124,6 +124,38 @@ test("settings menu shows current values and submenu cancel returns to main menu
   }
 });
 
+test("settings status shows status text and exits settings menu", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-settings-status-"));
+  const previousPiDir = process.env.PI_CODING_AGENT_DIR;
+  try {
+    const piDir = path.join(root, "agent");
+    process.env.PI_CODING_AGENT_DIR = piDir;
+    const { createDefaultConfig, saveConfig } = await import("../dist/config/index.js");
+    const { getDefaultPaths } = await import("../dist/utils/paths.js");
+    const paths = getDefaultPaths(piDir);
+    const config = createDefaultConfig("git@example.com:team/pi-config.git", paths);
+    config.autoMode = "manual";
+    await saveConfig(config, paths);
+
+    const extension = (await import("../dist/index.js")).default;
+    const harness = createHarness({ selects: ["Status"] });
+    extension(harness.pi);
+
+    await harness.commands.get("sync-settings").handler("", harness.ctx);
+
+    assert.deepEqual(
+      harness.selectCalls.map((call) => call.title),
+      ["Pi Sync Suite settings"],
+    );
+    assert.match(harness.notifications.join("\n"), /Pi Sync Suite/);
+    assert.match(harness.notifications.join("\n"), /Sync mode: manual - only syncs when you run push or pull/);
+    assert.match(harness.notifications.join("\n"), /Chat sync: off - chats are not synced/);
+  } finally {
+    restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("settings refuses unsafe manual paths and cancelled resume sync", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-settings-safety-"));
   const previousPiDir = process.env.PI_CODING_AGENT_DIR;

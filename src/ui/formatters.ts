@@ -1,4 +1,4 @@
-import type { CleanupCandidate, PiSyncSuiteConfig, SyncPaths } from "../types.js";
+import type { AutoSyncMode, CleanupCandidate, PiSyncSuiteConfig, SyncPaths } from "../types.js";
 import { getOptionalStoreChoices } from "../snapshot/policy.js";
 
 export function formatStatus(config: PiSyncSuiteConfig | null, paths: SyncPaths): string {
@@ -14,20 +14,33 @@ export function formatStatus(config: PiSyncSuiteConfig | null, paths: SyncPaths)
     "Pi Sync Suite",
     "",
     `Remote: ${config.repoUrl}`,
-    `Mode: ${config.autoMode}`,
+    `Sync mode: ${formatSyncMode(config.autoMode)}`,
+    `Chat sync: ${formatChatSync(config)}`,
     `Repo: ${config.repoDir}`,
     `Pi dir: ${paths.piDir}`,
-    `Config auto upload: ${config.autoMode === "full-auto" || config.autoMode === "config-only-auto" ? "on" : "off"}`,
-    `Chat auto export: ${config.chat.autoExport ? "on" : "off"}`,
-    `Chat auto upload: ${config.chat.autoUpload ? "on" : "off"}`,
-    `Chat auto download: ${config.chat.autoDownload ? "on" : "off"}`,
-    `Raw sessions: ${config.chat.rawSessionSync ? "on" : "off"}`,
     `Pull interval: ${config.pullIntervalMinutes} min`,
+    `Cleanup: ${config.retention.autoApply ? "auto" : "manual"} (${config.retention.keepChatExports} chats, ${config.retention.keepBackups} backups, ${config.retention.maxAgeDays} days)`,
+    `Extra paths: ${config.policy.includedPaths.length ? config.policy.includedPaths.join(", ") : "none"}`,
     `Last config sync: ${config.lastConfigSyncAt ?? "never"}`,
     `Last chat sync: ${config.lastChatSyncAt ?? "never"}`,
     "",
-    `Store-this-too choices: ${getOptionalStoreChoices(config.policy).join(", ") || "none"}`,
+    `Optional paths: ${getOptionalStoreChoices(config.policy).join(", ") || "none"}`,
   ].join("\n");
+}
+
+function formatSyncMode(mode: AutoSyncMode): string {
+  if (mode === "full-auto") return "full - pulls and pushes automatically";
+  if (mode === "config-only-auto") return "config - auto config sync; chat setting separate";
+  if (mode === "manual") return "manual - only syncs when you run push or pull";
+  return "off - background sync disabled";
+}
+
+function formatChatSync(config: PiSyncSuiteConfig): string {
+  if (config.chat.rawSessionSync) return "resume - syncs real Pi sessions";
+  if (config.chat.autoExport || config.chat.autoUpload || config.chat.autoDownload) {
+    return "archive - syncs readable chat archive";
+  }
+  return "off - chats are not synced";
 }
 
 export function formatCleanupPreview(candidates: CleanupCandidate[]): string {

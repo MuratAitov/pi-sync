@@ -15,6 +15,15 @@ npm run build
 npm test
 ```
 
+Two-device raw session sync can be smoke-tested with isolated temporary Pi agent directories:
+
+```bash
+npm run e2e:two-pi-sessions -- --local
+npm run e2e:two-pi-sessions -- --remote git@github.com:you/private-test-repo.git
+```
+
+The GitHub mode uses a temporary `pi-sync-e2e-*` branch and deletes it after a successful run unless `--keep-remote-branch` is passed.
+
 Pi loads the extension from `./src/index.ts` through the `pi.extensions` entry in `package.json`.
 
 Runtime setup happens inside Pi:

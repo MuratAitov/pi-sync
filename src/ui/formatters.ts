@@ -15,7 +15,7 @@ export function formatStatus(config: PiSyncSuiteConfig | null, paths: SyncPaths)
     "",
     `Remote: ${config.repoUrl}`,
     `Sync mode: ${formatSyncMode(config.autoMode)}`,
-    `Chat sync: ${formatChatSync(config)}`,
+    `Chat history: ${formatChatSync(config)}`,
     `Repo: ${config.repoDir}`,
     `Pi dir: ${paths.piDir}`,
     `Pull interval: ${config.pullIntervalMinutes} min`,
@@ -29,18 +29,18 @@ export function formatStatus(config: PiSyncSuiteConfig | null, paths: SyncPaths)
 }
 
 function formatSyncMode(mode: AutoSyncMode): string {
-  if (mode === "full-auto") return "full - pulls and pushes automatically";
-  if (mode === "config-only-auto") return "config - auto config sync; chat setting separate";
-  if (mode === "manual") return "manual - only syncs when you run push or pull";
-  return "off - background sync disabled";
+  if (mode === "full-auto") return "full - auto pull + push";
+  if (mode === "config-only-auto") return "config - auto config sync; chat separate";
+  if (mode === "manual") return "manual - push/pull only when commanded";
+  return "off - no background sync";
 }
 
 function formatChatSync(config: PiSyncSuiteConfig): string {
-  if (config.chat.rawSessionSync) return "resume - syncs real Pi sessions";
+  if (config.chat.rawSessionSync) return "resume - raw sessions; resumable on another Pi";
   if (config.chat.autoExport || config.chat.autoUpload || config.chat.autoDownload) {
-    return "archive - syncs readable chat archive";
+    return "archive - readable transcripts";
   }
-  return "off - chats are not synced";
+  return "off - skip chats";
 }
 
 export function formatCleanupPreview(candidates: CleanupCandidate[]): string {

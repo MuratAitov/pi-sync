@@ -4,6 +4,7 @@ import { createDefaultConfig, isAutoPullEnabled, isAutoPushEnabled, loadConfig, 
 import { getDefaultPaths, normalizePortablePath } from "../utils/paths.js";
 import { getOptionalStoreChoices, shouldNeverSync } from "../snapshot/policy.js";
 import { pushSnapshot, pullSnapshot } from "../engine/syncEngine.js";
+import { OperationQueue } from "../engine/operationQueue.js";
 import { applyCleanup, planCleanup } from "../cleanup/index.js";
 import { formatCleanupPreview, formatStatus, formatStatusWidget } from "../ui/formatters.js";
 import { createSnapshotFingerprint } from "../watcher/fingerprint.js";
@@ -11,6 +12,16 @@ import { createBackup, listBackups, restoreBackup } from "../backup/index.js";
 import { formatDoctor, runDoctor } from "../doctor/index.js";
 import { cloneIfMissing, diffStat, logOneline } from "../git/client.js";
 import { stageSnapshot } from "../snapshot/index.js";
+import {
+  clearIgnoredEnvironmentPackages,
+  environmentPackageKey,
+  formatEnvironmentRestorePlan,
+  ignoreEnvironmentPackage,
+  installEnvironmentPackages,
+  installMissingEnvironmentPackages,
+  missingEnvironmentCount,
+  planEnvironmentRestore,
+} from "../environment/index.js";
 
 type RuntimeContext = {
   ui: {
@@ -31,6 +42,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
   let lastSnapshotFingerprint: string | undefined;
   let autoPushRunning = false;
   let lastAutoPushError: string | undefined;
+  const operationQueue = new OperationQueue();
 
   const paths = getDefaultPaths();
 
@@ -60,9 +72,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       if (isAutoPullEnabled(config)) {
         const intervalMs = Math.max(1, config.pullIntervalMinutes) * 60 * 1000;
         pullTimer = setInterval(() => {
-          void pullSnapshot(pi, config).catch((error: unknown) => {
-            ctx.ui.notify(`pi-sync pull error: ${errorMessage(error)}`, "error");
-          });
+          void queueOperation("auto pull", () => pullSnapshot(pi, config), ctx).catch(() => undefined);
         }, intervalMs);
       }
       if (isAutoPushEnabled(config)) {
@@ -93,7 +103,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     pushDebounce = setTimeout(() => {
       if (autoPushRunning) return;
       autoPushRunning = true;
-      void pushSnapshot(pi, config)
+      void queueOperation("auto push", () => pushSnapshot(pi, config), ctx)
         .then(async () => {
           lastSnapshotFingerprint = await createSnapshotFingerprint(config, paths);
         })
@@ -121,9 +131,9 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     ctx.ui.setWidget("pi-sync", formatStatusWidget(config), { placement: "belowEditor" });
     startBackgroundWork(ctx);
     if (isAutoPullEnabled(config)) {
-      await pullSnapshot(pi, config).catch((error: unknown) => {
-        ctx.ui.notify(`pi-sync pull error: ${errorMessage(error)}`, "error");
-      });
+      await queueOperation("session start pull", () => pullSnapshot(pi, config), ctx)
+        .then(() => maybePromptEnvironmentRestore("pull", ctx))
+        .catch(() => undefined);
     }
   });
 
@@ -157,8 +167,9 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       setChatSyncMode(config, "Off");
       await saveAndRefresh(config, ctx);
       ctx.ui.notify(`pi-sync configured: ${repoUrl}`, "info");
-      await pullSnapshot(pi, config);
-      await pushSnapshot(pi, config);
+      await queueOperation("setup pull", () => pullSnapshot(pi, config), ctx);
+      await maybePromptEnvironmentRestore("setup pull", ctx);
+      await queueOperation("setup push", () => pushSnapshot(pi, config), ctx);
       startBackgroundWork(ctx);
     },
   });
@@ -168,7 +179,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     handler: async (_args, ctx) => {
       const config = await requireConfig(ctx);
       if (!config) return;
-      const summary = await pushSnapshot(pi, config);
+      const summary = await queueOperation("manual push", () => pushSnapshot(pi, config), ctx);
       ctx.ui.notify(summary.message, "info");
     },
   });
@@ -178,8 +189,9 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     handler: async (_args, ctx) => {
       const config = await requireConfig(ctx);
       if (!config) return;
-      const summary = await pullSnapshot(pi, config);
+      const summary = await queueOperation("manual pull", () => pullSnapshot(pi, config), ctx);
       ctx.ui.notify(summary.message, "info");
+      await maybePromptEnvironmentRestore("manual pull", ctx);
     },
   });
 
@@ -220,6 +232,8 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
         await runCleanupSettings(requiredConfig, ctx);
       } else if (sectionKey === "Backups") {
         await runBackupSettings(requiredConfig, ctx);
+      } else if (sectionKey === "Environment") {
+        await runEnvironmentSettings(ctx);
       } else if (sectionKey === "Diagnostics") {
         await runDiagnosticsSettings(requiredConfig, ctx);
       }
@@ -233,17 +247,17 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     config.autoMode = mode;
     await saveAndRefresh(config, ctx);
     startBackgroundWork(ctx);
-    ctx.ui.notify(`pi-sync: sync mode set to ${selected}`, "info");
+    ctx.ui.notify(`pi-sync: sync mode set to ${syncModeLabel(mode)}`, "info");
   }
 
   async function runChatSettings(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
-    const selected = await ctx.ui.select?.("Chat sync", buildChatSyncChoices());
+    const selected = await ctx.ui.select?.("Chat history", buildChatSyncChoices());
     const mode = parseChatSyncChoice(selected);
     if (!mode) return;
     if (mode === "Resume") {
       const confirmed = await ctx.ui.confirm?.(
-        "Enable Resume chat sync?",
-        "Resume sync uploads raw Pi session files. They may contain prompts, outputs, tool logs, file paths, and secrets. Use only with a private repository.",
+        "Enable Resumable Sessions?",
+        "This uploads raw Pi session files. They may contain prompts, outputs, tool logs, file paths, and secrets. Use only with a private repository.",
       );
       if (!confirmed) {
         ctx.ui.notify("pi-sync: resume chat sync cancelled", "warning");
@@ -252,7 +266,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     }
     setChatSyncMode(config, mode);
     await saveAndRefresh(config, ctx);
-    ctx.ui.notify(`pi-sync: chat sync set to ${mode}`, mode === "Resume" ? "warning" : "info");
+    ctx.ui.notify(`pi-sync: chat history set to ${chatSyncChoiceLabel(mode)}`, mode === "Resume" ? "warning" : "info");
   }
 
   async function runPathSettings(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
@@ -279,13 +293,13 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     if (!selected || selected.startsWith("Cancel")) return;
 
     if (selected.startsWith("Preview")) {
-      const candidates = await planCleanup(config, paths);
+      const candidates = await queueOperation("cleanup preview", () => planCleanup(config, paths), ctx);
       ctx.ui.notify(formatCleanupPreview(candidates), "info");
       return;
     }
 
     if (selected.startsWith("Run")) {
-      const candidates = await planCleanup(config, paths);
+      const candidates = await queueOperation("cleanup run preview", () => planCleanup(config, paths), ctx);
       ctx.ui.notify(formatCleanupPreview(candidates), candidates.length ? "warning" : "info");
       if (candidates.length === 0) return;
       const confirmed = await ctx.ui.confirm?.("pi-sync cleanup", `Delete ${candidates.length} cleanup candidate(s)?`);
@@ -293,7 +307,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
         ctx.ui.notify("pi-sync cleanup cancelled", "warning");
         return;
       }
-      const deleted = await applyCleanup(candidates);
+      const deleted = await queueOperation("cleanup run", () => applyCleanup(candidates), ctx);
       ctx.ui.notify(`pi-sync cleanup: deleted ${deleted} item(s)`, "info");
       return;
     }
@@ -305,7 +319,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     const selected = cleanChoice(await ctx.ui.select?.("Backups", await buildBackupChoices()));
     if (!selected || selected.startsWith("Cancel")) return;
     if (selected.startsWith("Create Backup")) {
-      const backup = await createBackup(config, paths, "manual backup");
+      const backup = await queueOperation("create backup", () => createBackup(config, paths, "manual backup"), ctx);
       ctx.ui.notify(`pi-sync: backup ${backup.id} created with ${backup.includedPaths.length} item(s)`, "info");
       return;
     }
@@ -320,7 +334,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       return;
     }
     const id = (await ctx.ui.input?.("Backup id", "latest"))?.trim() || "latest";
-    const restored = await restoreBackup(paths, id);
+    const restored = await queueOperation("restore backup", () => restoreBackup(paths, id), ctx);
     ctx.ui.notify(restored ? `pi-sync: restored backup ${restored.id}` : `pi-sync: backup not found: ${id}`, restored ? "info" : "error");
   }
 
@@ -328,16 +342,149 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     const selected = cleanChoice(await ctx.ui.select?.("Diagnostics", buildDiagnosticChoices()));
     if (!selected || selected.startsWith("Cancel")) return;
     if (selected.startsWith("Doctor")) {
-      ctx.ui.notify(formatDoctor(await runDoctor(pi, config, paths)), "info");
+      ctx.ui.notify(formatDoctor(await queueOperation("doctor", () => runDoctor(pi, config, paths), ctx)), "info");
       return;
     }
-    await cloneIfMissing(pi, config.repoUrl, config.repoDir);
     if (selected.startsWith("Diff")) {
-      await stageSnapshot(config, paths.piDir);
-      ctx.ui.notify((await diffStat(pi, config.repoDir)) || "pi-sync: no local snapshot diff", "info");
+      const diff = await queueOperation(
+        "diff",
+        async () => {
+          await cloneIfMissing(pi, config.repoUrl, config.repoDir);
+          await stageSnapshot(config, paths.piDir);
+          return diffStat(pi, config.repoDir);
+        },
+        ctx,
+      );
+      ctx.ui.notify(diff || "pi-sync: no local snapshot diff", "info");
       return;
     }
-    ctx.ui.notify((await logOneline(pi, config.repoDir)) || "pi-sync: no commits", "info");
+    const log = await queueOperation(
+      "log",
+      async () => {
+        await cloneIfMissing(pi, config.repoUrl, config.repoDir);
+        return logOneline(pi, config.repoDir);
+      },
+      ctx,
+    );
+    ctx.ui.notify(log || "pi-sync: no commits", "info");
+  }
+
+  async function runEnvironmentSettings(ctx: RuntimeContext): Promise<void> {
+    const selected = cleanChoice(await ctx.ui.select?.("Environment restore", buildEnvironmentChoices()));
+    if (!selected || selected.startsWith("Cancel") || selected.startsWith("Back")) return;
+
+    const plan = await queueOperation("environment check", () => planEnvironmentRestore(pi, paths.piDir), ctx);
+    if (selected.startsWith("Check")) {
+      ctx.ui.notify(formatEnvironmentRestorePlan(plan), missingEnvironmentCount(plan) ? "warning" : "info");
+      return;
+    }
+
+    if (selected.startsWith("Ignore")) {
+      await promptIgnoreEnvironmentPackage(plan, ctx);
+      return;
+    }
+
+    if (selected.startsWith("Clear Ignored")) {
+      const confirmed = await ctx.ui.confirm?.("Clear ignored packages?", "Show all missing environment packages again on this device?");
+      if (!confirmed) return;
+      await clearIgnoredEnvironmentPackages(paths.piDir);
+      ctx.ui.notify("pi-sync: cleared environment package ignore list", "info");
+      return;
+    }
+
+    await promptInstallEnvironmentPackages(plan, ctx, "environment menu");
+  }
+
+  async function maybePromptEnvironmentRestore(reason: string, ctx: RuntimeContext): Promise<void> {
+    if (!ctx.ui.select) return;
+    const plan = await queueOperation("environment check", () => planEnvironmentRestore(pi, paths.piDir), ctx);
+    const missing = missingEnvironmentCount(plan);
+    if (missing === 0) return;
+    ctx.ui.notify(`pi-sync: ${missing} environment package(s) missing after ${reason}`, "warning");
+    const action = cleanChoice(await ctx.ui.select?.("Environment restore", [
+      menuLine("Install Missing", String(missing), "choose all or one package"),
+      menuLine("Ignore Missing", undefined, "hide one package on this device"),
+      menuLine("Skip", "later", "ask again later"),
+    ]));
+    if (action.startsWith("Install Missing")) {
+      await promptInstallEnvironmentPackages(plan, ctx, reason);
+    } else if (action.startsWith("Ignore Missing")) {
+      await promptIgnoreEnvironmentPackage(plan, ctx);
+    }
+  }
+
+  async function promptInstallEnvironmentPackages(
+    plan: Awaited<ReturnType<typeof planEnvironmentRestore>>,
+    ctx: RuntimeContext,
+    reason: string,
+  ): Promise<void> {
+    const missing = missingEnvironmentCount(plan);
+    ctx.ui.notify(formatEnvironmentRestorePlan(plan), missing ? "warning" : "info");
+    if (missing === 0) return;
+    const missingEntries = plan.entries.filter((item) => item.status === "missing");
+    const installChoice = cleanChoice(await ctx.ui.select?.("Install packages", [
+      menuLine("All Missing", String(missing), "install every missing package"),
+      ...missingEntries.map((item) => menuLine(environmentPackageKey(item), undefined, "install only this package")),
+      menuLine("Back", "back", "return to environment menu"),
+    ]));
+    if (!installChoice || installChoice.startsWith("Back")) return;
+    const selectedPackages = installChoice.startsWith("All Missing")
+      ? missingEntries
+      : missingEntries.filter((item) => installChoice.startsWith(environmentPackageKey(item)));
+    if (selectedPackages.length === 0) return;
+    const confirmed = await ctx.ui.confirm?.(
+      "Install missing packages?",
+      `Install ${selectedPackages.length} package(s) from pi-sync-environment.json after ${reason}? npm packages use npm install -g; Pi packages use pi install.`,
+    );
+    if (!confirmed) {
+      ctx.ui.notify("pi-sync: environment restore cancelled", "warning");
+      return;
+    }
+    const installed = await queueOperation(
+      "environment install",
+      () => selectedPackages.length === missingEntries.length
+        ? installMissingEnvironmentPackages(pi, plan)
+        : installEnvironmentPackages(pi, selectedPackages),
+      ctx,
+    );
+    ctx.ui.notify(`pi-sync: installed ${installed.length} environment package(s)`, "info");
+  }
+
+  async function promptIgnoreEnvironmentPackage(
+    plan: Awaited<ReturnType<typeof planEnvironmentRestore>>,
+    ctx: RuntimeContext,
+  ): Promise<void> {
+    const missingEntries = plan.entries.filter((item) => item.status === "missing");
+    if (missingEntries.length === 0) {
+      ctx.ui.notify("pi-sync: no missing environment packages to ignore", "info");
+      return;
+    }
+    const ignoredChoice = cleanChoice(await ctx.ui.select?.("Ignore package on this device", [
+      ...missingEntries.map((item) => menuLine(environmentPackageKey(item), undefined, "do not ask on this device")),
+      menuLine("Back", "back", "return to environment menu"),
+    ]));
+    if (!ignoredChoice || ignoredChoice.startsWith("Back")) return;
+    const item = missingEntries.find((entry) => ignoredChoice.startsWith(environmentPackageKey(entry)));
+    if (!item) return;
+    await ignoreEnvironmentPackage(paths.piDir, item);
+    ctx.ui.notify(`pi-sync: ignored ${environmentPackageKey(item)} on this device`, "info");
+  }
+
+  async function queueOperation<T>(
+    label: string,
+    run: () => Promise<T>,
+    ctx: RuntimeContext,
+  ): Promise<T> {
+    const queuedBehind = operationQueue.currentOperation();
+    if (queuedBehind) {
+      ctx.ui.notify(`pi-sync: queued ${label} after ${queuedBehind}`, "info");
+    }
+    try {
+      return await operationQueue.enqueue({ label, run });
+    } catch (error) {
+      ctx.ui.notify(`pi-sync ${label} error: ${errorMessage(error)}`, "error");
+      throw error;
+    }
   }
 
   async function updateRetentionPolicy(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
@@ -421,39 +568,41 @@ type SettingsSection =
   | "Config Paths"
   | "Cleanup"
   | "Backups"
+  | "Environment"
   | "Diagnostics"
   | "Cancel";
 
 async function buildSettingsSections(config: PiSyncSuiteConfig | null): Promise<string[]> {
   const backupCount = config ? (await listBackups(getDefaultPaths())).length : 0;
   return [
-    menuLine("Status", undefined, config ? "show current setup" : "not configured"),
+    menuLine("View Status", undefined, config ? "current setup" : "not configured"),
     menuLine("Sync Mode", config ? syncModeLabel(config.autoMode) : "off", syncModeSummary(config?.autoMode)),
-    menuLine("Chat Sync", config ? chatSyncLabel(config) : "off", chatSyncSummary(config)),
-    menuLine("Config Paths", config ? String(config.policy.includedPaths.length) : "0", "extra optional paths included"),
+    menuLine("Chat History", config ? chatSyncLabel(config) : "off", chatSyncSummary(config)),
+    menuLine("Config Paths", config ? String(config.policy.includedPaths.length) : "0", "optional extra paths"),
     menuLine("Cleanup", config?.retention.autoApply ? "auto" : "manual", cleanupSummary(config)),
     menuLine("Backups", backupCount === 1 ? "1 backup" : `${backupCount} backups`, "local restore points"),
-    menuLine("Diagnostics", undefined, "doctor, diff, and git log"),
+    menuLine("Environment", undefined, "restore npm/Pi packages"),
+    menuLine("Diagnostics", undefined, "doctor / diff / log"),
     "Cancel",
   ];
 }
 
 function buildSyncModeChoices(): string[] {
   return [
-    menuLine("Full Sync", "full", "auto pull on start/interval and auto push local changes"),
-    menuLine("Config Only", "config", "same auto pull/push, chat sync stays controlled separately"),
-    menuLine("Manual", "manual", "no background sync; use push and pull commands yourself"),
-    menuLine("Off", "off", "disable background sync"),
+    menuLine("Full Sync", "full", "auto pull + push"),
+    menuLine("Config Only", "config", "auto config sync; chat separate"),
+    menuLine("Manual", "manual", "push/pull only when commanded"),
+    menuLine("Off", "off", "no background sync"),
     menuLine("Cancel", "back", "return to main menu"),
   ];
 }
 
 function buildChatSyncChoices(): string[] {
   return [
-    menuLine("Off", "off", "do not sync chats"),
-    menuLine("Archive", "archive", "sync readable Markdown transcripts, not Pi resume sessions"),
-    menuLine("Resume", "resume", "sync real sessions so another Pi can resume them"),
-    menuLine("Cancel", "back", "return to main menu"),
+    menuLine("No Chat Sync", "off", "skip chats"),
+    menuLine("Readable Archive", "archive", "Markdown history"),
+    menuLine("Resumable Sessions", "resume", "raw private sessions"),
+    menuLine("Back", "back", "main menu"),
   ];
 }
 
@@ -476,6 +625,16 @@ async function buildBackupChoices(): Promise<string[]> {
   ];
 }
 
+function buildEnvironmentChoices(): string[] {
+  return [
+    menuLine("Check Missing", undefined, "show packages not installed here"),
+    menuLine("Install Missing", undefined, "choose all or one package"),
+    menuLine("Ignore Missing", undefined, "hide one package on this device"),
+    menuLine("Clear Ignored", undefined, "show ignored packages again"),
+    menuLine("Back", "back", "return to main menu"),
+  ];
+}
+
 function buildDiagnosticChoices(): string[] {
   return [
     menuLine("Doctor", undefined, "check git, config, paths, and remote"),
@@ -487,12 +646,15 @@ function buildDiagnosticChoices(): string[] {
 
 function parseSectionChoice(value: string | undefined): SettingsSection | undefined {
   const clean = cleanChoice(value);
+  if (clean.startsWith("View Status")) return "Status";
   if (clean.startsWith("Status")) return "Status";
   if (clean.startsWith("Sync Mode")) return "Sync Mode";
+  if (clean.startsWith("Chat History")) return "Chat Sync";
   if (clean.startsWith("Chat Sync")) return "Chat Sync";
   if (clean.startsWith("Config Paths")) return "Config Paths";
   if (clean.startsWith("Cleanup")) return "Cleanup";
   if (clean.startsWith("Backups")) return "Backups";
+  if (clean.startsWith("Environment")) return "Environment";
   if (clean.startsWith("Diagnostics")) return "Diagnostics";
   if (clean.startsWith("Cancel")) return "Cancel";
   return undefined;
@@ -509,8 +671,11 @@ function parseSyncModeChoice(value: string | undefined): AutoSyncMode | undefine
 
 function parseChatSyncChoice(value: string | undefined): "Off" | "Archive" | "Resume" | undefined {
   const clean = cleanChoice(value);
+  if (clean.startsWith("No Chat Sync")) return "Off";
   if (clean.startsWith("Off")) return "Off";
+  if (clean.startsWith("Readable Archive")) return "Archive";
   if (clean.startsWith("Archive")) return "Archive";
+  if (clean.startsWith("Resumable Sessions")) return "Resume";
   if (clean.startsWith("Resume")) return "Resume";
   return undefined;
 }
@@ -528,6 +693,12 @@ function setChatSyncMode(config: PiSyncSuiteConfig, mode: "Off" | "Archive" | "R
     config.policy.dangerouslyAllowedNames = config.policy.dangerouslyAllowedNames.filter((item) => item !== "sessions");
     config.policy.includedPaths = config.policy.includedPaths.filter((item) => item !== "sessions");
   }
+}
+
+function chatSyncChoiceLabel(mode: "Off" | "Archive" | "Resume"): string {
+  if (mode === "Off") return "No Chat Sync";
+  if (mode === "Archive") return "Readable Archive";
+  return "Resumable Sessions";
 }
 
 function buildPathChoices(config: PiSyncSuiteConfig): string[] {
@@ -556,10 +727,10 @@ function syncModeLabel(mode: AutoSyncMode): string {
 }
 
 function syncModeSummary(mode: AutoSyncMode | undefined): string {
-  if (mode === "full-auto") return "pulls and pushes automatically";
-  if (mode === "config-only-auto") return "auto config sync; chat setting separate";
-  if (mode === "manual") return "only syncs when you run push or pull";
-  if (mode === "off") return "background sync disabled";
+  if (mode === "full-auto") return "auto pull + push";
+  if (mode === "config-only-auto") return "auto config sync; chat separate";
+  if (mode === "manual") return "push/pull only when commanded";
+  if (mode === "off") return "no background sync";
   return "not configured";
 }
 
@@ -571,9 +742,9 @@ function chatSyncLabel(config: PiSyncSuiteConfig): string {
 
 function chatSyncSummary(config: PiSyncSuiteConfig | null): string {
   if (!config) return "not configured";
-  if (config.chat.rawSessionSync) return "syncs real Pi sessions";
-  if (config.chat.autoExport || config.chat.autoUpload || config.chat.autoDownload) return "syncs readable chat archive";
-  return "chats are not synced";
+  if (config.chat.rawSessionSync) return "raw sessions; resumable";
+  if (config.chat.autoExport || config.chat.autoUpload || config.chat.autoDownload) return "readable transcripts";
+  return "skip chats";
 }
 
 function cleanupSummary(config: PiSyncSuiteConfig | null): string {

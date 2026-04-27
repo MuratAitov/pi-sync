@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -41,12 +41,12 @@ test("settings wizard mutates chat, path, mode, and cleanup policy", async () =>
     const extension = (await import("../dist/index.js")).default;
     const harness = createHarness({
       selects: [
-        "Chat Sync",
-        "Resume",
-        "Chat Sync",
-        "Off",
-        "Chat Sync",
-        "Archive",
+        "Chat History",
+        "Resumable Sessions",
+        "Chat History",
+        "No Chat Sync",
+        "Chat History",
+        "Readable Archive",
         "Config Paths",
         "Include AGENTS.md",
         "Config Paths",
@@ -102,22 +102,22 @@ test("settings menu shows current values and submenu cancel returns to main menu
 
     const extension = (await import("../dist/index.js")).default;
     const harness = createHarness({
-      selects: ["Chat Sync", "Cancel", "Cancel"],
+      selects: ["Chat History", "Back", "Cancel"],
     });
     extension(harness.pi);
 
     await harness.commands.get("sync-settings").handler("", harness.ctx);
 
     const mainChoices = harness.selectCalls[0].choices.map(stripAnsi);
-    assert.ok(mainChoices.some((choice) => /^Status - show current setup/.test(choice)));
-    assert.ok(mainChoices.some((choice) => /^Sync Mode \[manual\].*only syncs when you run push or pull/.test(choice)));
-    assert.ok(mainChoices.some((choice) => /^Chat Sync \[off\].*chats are not synced/.test(choice)));
-    assert.ok(mainChoices.some((choice) => /^Diagnostics - doctor, diff, and git log/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^View Status - current setup/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Sync Mode \[manual\].*push\/pull only when commanded/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Chat History \[off\].*skip chats/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Diagnostics - doctor \/ diff \/ log/.test(choice)));
     assert.deepEqual(
       harness.selectCalls.map((call) => call.title),
-      ["Pi Sync settings", "Chat sync", "Pi Sync settings"],
+      ["Pi Sync settings", "Chat history", "Pi Sync settings"],
     );
-    assert.ok(harness.selectCalls[1].choices.map(stripAnsi).some((choice) => /^Resume \[resume\].*another Pi can resume/.test(choice)));
+    assert.ok(harness.selectCalls[1].choices.map(stripAnsi).some((choice) => /^Resumable Sessions \[resume\].*raw private sessions/.test(choice)));
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     await rm(root, { recursive: true, force: true });
@@ -138,7 +138,7 @@ test("settings status shows status text and exits settings menu", async () => {
     await saveConfig(config, paths);
 
     const extension = (await import("../dist/index.js")).default;
-    const harness = createHarness({ selects: ["Status"] });
+    const harness = createHarness({ selects: ["View Status"] });
     extension(harness.pi);
 
     await harness.commands.get("sync-settings").handler("", harness.ctx);
@@ -148,8 +148,8 @@ test("settings status shows status text and exits settings menu", async () => {
       ["Pi Sync settings"],
     );
     assert.match(harness.notifications.join("\n"), /Pi Sync/);
-    assert.match(harness.notifications.join("\n"), /Sync mode: manual - only syncs when you run push or pull/);
-    assert.match(harness.notifications.join("\n"), /Chat sync: off - chats are not synced/);
+    assert.match(harness.notifications.join("\n"), /Sync mode: manual - push\/pull only when commanded/);
+    assert.match(harness.notifications.join("\n"), /Chat history: off - skip chats/);
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     await rm(root, { recursive: true, force: true });
@@ -169,7 +169,7 @@ test("settings refuses unsafe manual paths and cancelled resume sync", async () 
 
     const extension = (await import("../dist/index.js")).default;
     const harness = createHarness({
-      selects: ["Chat Sync", "Resume", "Config Paths", "Manual Include", "Cancel"],
+      selects: ["Chat History", "Resumable Sessions", "Config Paths", "Manual Include", "Cancel"],
       inputs: ["auth.json"],
       confirms: [false],
     });
@@ -183,6 +183,103 @@ test("settings refuses unsafe manual paths and cancelled resume sync", async () 
     assert.ok(!config.policy.includedPaths.includes("auth.json"));
     assert.match(harness.notifications.join("\n"), /resume chat sync cancelled/);
     assert.match(harness.notifications.join("\n"), /refusing unsafe path auth\.json/);
+  } finally {
+    restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("settings environment restore installs missing packages after confirmation", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-settings-env-"));
+  const previousPiDir = process.env.PI_CODING_AGENT_DIR;
+  try {
+    const piDir = path.join(root, "agent");
+    process.env.PI_CODING_AGENT_DIR = piDir;
+    const { createDefaultConfig, saveConfig } = await import("../dist/config/index.js");
+    const { getDefaultPaths } = await import("../dist/utils/paths.js");
+    const paths = getDefaultPaths(piDir);
+    await saveConfig(createDefaultConfig("git@example.com:team/pi-config.git", paths), paths);
+    await writeFile(
+      path.join(piDir, "pi-sync-environment.json"),
+      JSON.stringify({ npm: ["typescript@5.8.0"], pi: ["npm:@team/pi-extension"] }),
+      "utf8",
+    );
+
+    const extension = (await import("../dist/index.js")).default;
+    const execCalls = [];
+    const harness = createHarness({
+      selects: ["Environment", "Install Missing", "All Missing", "Cancel"],
+      confirms: [true],
+      exec: async (command, args) => {
+        execCalls.push([command, args]);
+        if (command === "npm" && args[0] === "ls") {
+          return { code: 0, stdout: JSON.stringify({ dependencies: {} }), stderr: "" };
+        }
+        if (command === "pi" && args[0] === "list" && args[1] === "--json") {
+          return { code: 0, stdout: JSON.stringify([]), stderr: "" };
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    extension(harness.pi);
+
+    await harness.commands.get("sync-settings").handler("", harness.ctx);
+
+    assert.ok(harness.selectCalls[0].choices.map(stripAnsi).some((choice) => /^Environment - restore npm\/Pi packages/.test(choice)));
+    assert.match(harness.notifications.join("\n"), /npm:typescript@5\.8\.0 \[missing\]/);
+    assert.match(harness.notifications.join("\n"), /pi:npm:@team\/pi-extension \[missing\]/);
+    assert.match(harness.notifications.join("\n"), /installed 2 environment package/);
+    assert.deepEqual(execCalls.slice(-2), [
+      ["npm", ["install", "-g", "typescript@5.8.0"]],
+      ["pi", ["install", "npm:@team/pi-extension"]],
+    ]);
+  } finally {
+    restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("manual pull offers environment restore and can install one selected package", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-pull-env-"));
+  const previousPiDir = process.env.PI_CODING_AGENT_DIR;
+  try {
+    const piDir = path.join(root, "agent");
+    process.env.PI_CODING_AGENT_DIR = piDir;
+    const { createDefaultConfig, saveConfig } = await import("../dist/config/index.js");
+    const { getDefaultPaths } = await import("../dist/utils/paths.js");
+    const paths = getDefaultPaths(piDir);
+    await saveConfig(createDefaultConfig("git@example.com:team/pi-config.git", paths), paths);
+    await writeFile(
+      path.join(piDir, "pi-sync-environment.json"),
+      JSON.stringify({ npm: ["typescript@5.8.0", "prettier"] }),
+      "utf8",
+    );
+
+    const extension = (await import("../dist/index.js")).default;
+    const execCalls = [];
+    const harness = createHarness({
+      selects: ["Install Missing", "npm:prettier"],
+      confirms: [true],
+      exec: async (command, args) => {
+        execCalls.push([command, args]);
+        if (command === "npm" && args[0] === "ls") {
+          return { code: 0, stdout: JSON.stringify({ dependencies: {} }), stderr: "" };
+        }
+        if (command === "pi" && args[0] === "list" && args[1] === "--json") {
+          return { code: 0, stdout: JSON.stringify([]), stderr: "" };
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    extension(harness.pi);
+
+    await harness.commands.get("sync-pull").handler("", harness.ctx);
+
+    assert.match(harness.notifications.join("\n"), /environment package\(s\) missing after manual pull/);
+    assert.match(harness.notifications.join("\n"), /installed 1 environment package/);
+    assert.deepEqual(execCalls.filter(([command, args]) => command === "npm" && args[0] === "install"), [
+      ["npm", ["install", "-g", "prettier"]],
+    ]);
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     await rm(root, { recursive: true, force: true });
@@ -244,9 +341,9 @@ function createHarness(options = {}) {
     registerCommand(name, command) {
       commands.set(name, command);
     },
-    exec: async () => {
+    exec: async (command, args, execOptions) => {
       execCalls += 1;
-      return { code: 0, stdout: "", stderr: "" };
+      return options.exec ? options.exec(command, args, execOptions) : { code: 0, stdout: "", stderr: "" };
     },
   };
   return {

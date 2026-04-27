@@ -42,7 +42,7 @@ test("extension setup can push to a fresh local bare git remote", async () => {
     await execFileAsync("git", ["init", "--bare", remoteDir]);
 
     const extension = (await import("../dist/index.js")).default;
-    const harness = createHarness({ selects: ["Chat Sync", "Archive", "Cancel"] });
+    const harness = createHarness({ selects: ["Chat History", "Readable Archive", "Cancel"] });
     extension(harness.pi);
 
     await harness.commands.get("sync-setup").handler(`${remoteDir} 1440`, harness.ctx);
@@ -66,7 +66,7 @@ test("extension setup can push to a fresh local bare git remote", async () => {
 
     const notifications = harness.notifications.join("\n");
     assert.match(notifications, /pi-sync configured/);
-    assert.match(notifications, /chat sync set to Archive/);
+    assert.match(notifications, /chat history set to Readable Archive/);
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     restoreEnv("GIT_AUTHOR_NAME", previousAuthorName);

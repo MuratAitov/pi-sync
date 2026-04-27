@@ -4,7 +4,7 @@ import type { PathPolicy } from "../types.js";
 import { normalizePortablePath, resolveInside } from "../utils/paths.js";
 
 export const DEFAULT_POLICY: PathPolicy = {
-  safeRootFiles: ["settings.json", "keybindings.json"],
+  safeRootFiles: ["settings.json", "keybindings.json", "pi-sync-environment.json"],
   safeDirs: ["themes", "skills", "prompts"],
   optionalFiles: ["AGENTS.md", "CLAUDE.md"],
   optionalDirs: ["extensions", "sync-suite-chat-exports"],
@@ -22,6 +22,7 @@ export const DEFAULT_POLICY: PathPolicy = {
     ".ssh",
     "sync-suite-repo",
     "pi-sync-suite.json",
+    "pi-sync-environment-ignore.json",
   ],
   strippedSettingsKeys: ["lastChangelogVersion"],
 };

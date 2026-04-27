@@ -20,7 +20,12 @@ export interface ChatMessage {
   timestamp?: string;
   role?: string;
   author?: string;
+  toolName?: string;
   content: string;
+  annotations: string[];
+  redacted: boolean;
+  omitted: boolean;
+  truncated: boolean;
 }
 
 export interface ChatExportMetadata {
@@ -30,6 +35,9 @@ export interface ChatExportMetadata {
   exportedAt: string;
   messageCount: number;
   skippedLineCount: number;
+  redactedMessageCount: number;
+  omittedMessageCount: number;
+  truncatedMessageCount: number;
   sourceModifiedAt: string;
   sourceSizeBytes: number;
   markdownPath: string;

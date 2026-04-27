@@ -45,15 +45,16 @@ The optional pull interval defaults to `1440` minutes. The extension stores its 
 
 Everything else is configured inside `/sync-settings` so the Pi command list stays small. The settings wizard currently contains:
 
-- `Status` - overview
+- `View Status` - current setup
 - `Sync Mode [full/config/manual/off]` - current background sync mode
-- `Chat Sync [off/archive/resume]` - current chat sync behavior
+- `Chat History [off/archive/resume]` - current chat history behavior
 - `Config Paths [n]` - number of extra optional paths included
 - `Cleanup [manual/auto]` - current cleanup apply mode
 - `Backups [n backups]` - local restore points
-- `Diagnostics` - doctor, diff, and log
+- `Environment` - restore npm/Pi packages from a synced manifest
+- `Diagnostics` - doctor / diff / log
 
-Inside a settings section, `Cancel [back]` returns to the main settings menu. `Cancel` on the main menu closes settings. Descriptions are shown in dim terminal text and explain what the current setting or selectable action does.
+Inside a settings section, `Cancel [back]` or `Back [back]` returns to the main settings menu. `Cancel` on the main menu closes settings. Descriptions are shown in dim terminal text and explain what the current setting or selectable action does.
 
 ## Project Structure
 
@@ -63,6 +64,7 @@ src/
   extension/               Pi lifecycle and command registration
   config/                  config defaults, loading, validation, persistence
   engine/                  high-level push/pull orchestration
+  environment/             npm/Pi package restore planning and install
   git/                     non-interactive Git client helpers
   snapshot/                safe file staging/apply and path policy
   chat/                    Pi session scanning and chat export
@@ -81,7 +83,7 @@ scripts/                   development utilities
 `/sync-setup` starts in `full-auto` for config sync, with chat sync off by default.
 
 - `full-auto`: pulls on session start and on the configured interval, and polls the safe sync scope for debounced pushes.
-- `config-only-auto`: same automation behavior as `full-auto`; chat behavior is still controlled separately by `Chat Sync`.
+- `config-only-auto`: same automation behavior as `full-auto`; chat behavior is still controlled separately by `Chat History`.
 - `manual`: disables automatic pull and push. Use `/sync-push` and `/sync-pull` explicitly.
 - `off`: disables automatic config and chat activity.
 
@@ -113,22 +115,55 @@ Paths are normalized to portable forward-slash form and must stay inside the Pi 
 
 The same screen also has manual include and exclude actions for advanced users.
 
-## Chat Sync
+## Environment Restore
 
-Use `/sync-settings` -> `Chat Sync`.
+Use `/sync-settings` -> `Environment`.
 
-- `Off`: do not sync chats.
-- `Archive`: export local `sessions/**/*.jsonl` to readable Markdown and JSON metadata under `sync-suite-chat-exports`, then sync those archive files.
-- `Resume`: sync the real Pi `sessions/` tree so another Pi environment can show the same session tree and resume sessions.
+Environment restore reads `pi-sync-environment.json` from the Pi agent directory. That file is part of the safe sync snapshot, so a new machine can pull it and then check which packages are missing locally.
 
-Archive mode writes:
+After a manual `/sync-pull`, setup pull, or session-start pull, Pi Sync checks this manifest and offers Environment Restore if packages are missing. Background interval pulls do not open an install prompt.
+
+Example:
+
+```json
+{
+  "npm": {
+    "typescript": "5.8.0",
+    "prettier": "latest"
+  },
+  "pi": [
+    "npm:@team/pi-extension"
+  ]
+}
+```
+
+- `Check Missing`: shows installed/missing/ignored/unknown package status.
+- `Install Missing`: shows the plan, then lets you install all missing packages or one selected package.
+- `Ignore Missing`: hides one missing package on this device.
+- `Clear Ignored`: removes the local ignore list so missing packages show again.
+
+Ignored packages are stored in `pi-sync-environment-ignore.json`. That file is local-only and is not synced, so skipping a package on one machine does not hide it on another machine.
+
+npm packages are installed with `npm install -g <package-spec>` using direct process arguments, not a shell, so the same path works on macOS, Linux, and Windows. Pi packages are installed with `pi install <package-spec>`, including specs such as `npm:@team/pi-extension`. Unsafe specs with shell characters, paths, URLs, or Git/file protocols are rejected.
+
+## Chat History
+
+Use `/sync-settings` -> `Chat History`.
+
+- `No Chat Sync`: do not sync chats.
+- `Readable Archive`: export local `sessions/**/*.jsonl` to readable Markdown and JSON metadata under `sync-suite-chat-exports`, then sync those archive files.
+- `Resumable Sessions`: sync the real Pi `sessions/` tree so another Pi environment can show the same session tree and resume sessions.
+
+Readable Archive mode writes:
 
 - Markdown transcript files: `<portable-session-path>.md`
 - JSON metadata files: `<portable-session-path>.metadata.json`
 
-Metadata includes the source path, relative session path, session id, export time, message count, skipped line count, source modified time, source size, and generated output paths. Malformed JSONL lines or records without recognizable message content are counted as skipped.
+Metadata includes the source path, relative session path, session id, export time, message count, skipped line count, redacted/omitted/truncated counts, source modified time, source size, and generated output paths. Malformed JSONL lines or records without recognizable message content are counted as skipped.
 
-Archive is useful for reading, search, and audit history, but it does not recreate live Pi sessions. Resume mode is intentionally explicit because raw sessions may contain prompts, model outputs, tool logs, file paths, and secrets. Use Resume only with a private repository you control.
+Readable Archive normalizes common Pi JSONL message shapes into readable user, assistant, system, and tool sections. It keeps useful surrounding text, but replaces secret-like values, internal reasoning blocks, binary/base64 image blobs, and oversized outputs with visible placeholders. Large outputs keep the beginning and end so the archive remains useful without storing thousands of noisy lines.
+
+Readable Archive is useful for reading, search, and audit history, but it does not recreate live Pi sessions. Resumable Sessions is intentionally explicit because raw sessions may contain prompts, model outputs, tool logs, file paths, and secrets. Use it only with a private repository you control.
 
 ## Cleanup
 
@@ -179,7 +214,7 @@ These commands operate only on local `sync-suite-backups`; they do not force-pus
 The extension refuses any path containing these names:
 
 - `auth.json`
-- `sessions` unless `Chat Sync` is set to `Resume`
+- `sessions` unless `Chat History` is set to `Resumable Sessions`
 - `git`
 - `npm`
 - `bin`

@@ -34,7 +34,7 @@ test("snapshot strips machine-local settings keys and merges downloaded settings
 
     const staged = await stageSnapshot(config, piDir);
 
-    assert.deepEqual(staged, ["keybindings.json", "prompts", "settings.json", "skills", "themes"]);
+    assert.deepEqual(staged, ["keybindings.json", "pi-sync-environment.json", "prompts", "settings.json", "skills", "themes"]);
     const repoSettings = JSON.parse(await readFile(path.join(paths.repoDir, "settings.json"), "utf8"));
     assert.deepEqual(repoSettings, { theme: "dark", nested: { keep: true } });
 

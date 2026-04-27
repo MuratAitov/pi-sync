@@ -50,6 +50,7 @@ test("store-this-too policy exposes optional safe choices and blocks never-sync 
   assert.deepEqual(getPortableSyncPaths(policy), [
     "CLAUDE.md",
     "keybindings.json",
+    "pi-sync-environment.json",
     "prompts",
     "settings.json",
     "skills",

@@ -427,61 +427,61 @@ type SettingsSection =
 async function buildSettingsSections(config: PiSyncSuiteConfig | null): Promise<string[]> {
   const backupCount = config ? (await listBackups(getDefaultPaths())).length : 0;
   return [
-    menuLine("Status", config ? "ok" : "off", "overview"),
-    menuLine("Sync Mode", config ? autoModeCode(config.autoMode) : "off", "auto pull/push"),
-    menuLine("Chat Sync", config ? chatSyncCode(config) : "off", "chat behavior"),
-    menuLine("Config Paths", config ? String(config.policy.includedPaths.length) : "0", "extra files"),
-    menuLine("Cleanup", config?.retention.autoApply ? "on" : "off", "retention"),
-    menuLine("Backups", String(backupCount), "local restore"),
-    menuLine("Diagnostics", config ? "ok" : "off", "doctor/diff/log"),
+    menuLine("Status", undefined, config ? "show current setup" : "not configured"),
+    menuLine("Sync Mode", config ? syncModeLabel(config.autoMode) : "off", syncModeSummary(config?.autoMode)),
+    menuLine("Chat Sync", config ? chatSyncLabel(config) : "off", chatSyncSummary(config)),
+    menuLine("Config Paths", config ? String(config.policy.includedPaths.length) : "0", "extra optional paths included"),
+    menuLine("Cleanup", config?.retention.autoApply ? "auto" : "manual", cleanupSummary(config)),
+    menuLine("Backups", backupCount === 1 ? "1 backup" : `${backupCount} backups`, "local restore points"),
+    menuLine("Diagnostics", undefined, "doctor, diff, and git log"),
     "Cancel",
   ];
 }
 
 function buildSyncModeChoices(): string[] {
   return [
-    menuLine("Full Sync", "fu", "auto pull/push"),
-    menuLine("Config Only", "co", "no chat changes"),
-    menuLine("Manual", "ma", "buttons only"),
-    menuLine("Off", "off", "disabled"),
-    menuLine("Cancel", "back", "main menu"),
+    menuLine("Full Sync", "full", "auto pull on start/interval and auto push local changes"),
+    menuLine("Config Only", "config", "same auto pull/push, chat sync stays controlled separately"),
+    menuLine("Manual", "manual", "no background sync; use push and pull commands yourself"),
+    menuLine("Off", "off", "disable background sync"),
+    menuLine("Cancel", "back", "return to main menu"),
   ];
 }
 
 function buildChatSyncChoices(): string[] {
   return [
-    menuLine("Off", "off", "no chats"),
-    menuLine("Archive", "ar", "readable export"),
-    menuLine("Resume", "re", "real sessions"),
-    menuLine("Cancel", "back", "main menu"),
+    menuLine("Off", "off", "do not sync chats"),
+    menuLine("Archive", "archive", "sync readable Markdown transcripts, not Pi resume sessions"),
+    menuLine("Resume", "resume", "sync real sessions so another Pi can resume them"),
+    menuLine("Cancel", "back", "return to main menu"),
   ];
 }
 
 function buildCleanupChoices(config: PiSyncSuiteConfig): string[] {
   return [
-    menuLine("Preview", "pr", "show candidates"),
-    menuLine("Run", "run", "delete after confirm"),
-    menuLine("Retention", config.retention.autoApply ? "on" : "off", "limits"),
-    menuLine("Cancel", "back", "main menu"),
+    menuLine("Preview", undefined, "show files that cleanup would remove"),
+    menuLine("Run", undefined, "delete cleanup candidates after confirmation"),
+    menuLine("Retention", config.retention.autoApply ? "auto" : "manual", "edit count and age limits"),
+    menuLine("Cancel", "back", "return to main menu"),
   ];
 }
 
 async function buildBackupChoices(): Promise<string[]> {
   const backupCount = (await listBackups(getDefaultPaths())).length;
   return [
-    menuLine("Create Backup", "new", "save local copy"),
-    menuLine("List Backups", String(backupCount), "show backups"),
-    menuLine("Restore Latest", "re", "apply backup"),
-    menuLine("Cancel", "back", "main menu"),
+    menuLine("Create Backup", undefined, "save current managed files locally"),
+    menuLine("List Backups", backupCount === 1 ? "1 backup" : `${backupCount} backups`, "show available local backups"),
+    menuLine("Restore Latest", undefined, "apply the newest local backup"),
+    menuLine("Cancel", "back", "return to main menu"),
   ];
 }
 
 function buildDiagnosticChoices(): string[] {
   return [
-    menuLine("Doctor", "ok", "health checks"),
-    menuLine("Diff", "di", "pending changes"),
-    menuLine("Log", "lo", "git history"),
-    menuLine("Cancel", "back", "main menu"),
+    menuLine("Doctor", undefined, "check git, config, paths, and remote"),
+    menuLine("Diff", undefined, "show pending snapshot changes"),
+    menuLine("Log", undefined, "show recent sync commits"),
+    menuLine("Cancel", "back", "return to main menu"),
   ];
 }
 
@@ -536,33 +536,54 @@ function buildPathChoices(config: PiSyncSuiteConfig): string[] {
   for (const item of optionalChoices) {
     choices.push(
       config.policy.includedPaths.includes(item)
-        ? menuLine(`Exclude ${item}`, "on", "remove path")
-        : menuLine(`Include ${item}`, "off", "add path"),
+        ? menuLine(`Exclude ${item}`, "included", "remove this optional path")
+        : menuLine(`Include ${item}`, "off", "add this optional path"),
     );
   }
   choices.push(
-    menuLine("Manual Include", "in", "custom path"),
-    menuLine("Manual Exclude", "ex", "custom path"),
-    menuLine("Cancel", "back", "main menu"),
+    menuLine("Manual Include", undefined, "add a custom relative path"),
+    menuLine("Manual Exclude", undefined, "exclude a custom relative path"),
+    menuLine("Cancel", "back", "return to main menu"),
   );
   return choices;
 }
 
-function autoModeCode(mode: AutoSyncMode): string {
-  if (mode === "full-auto") return "fu";
-  if (mode === "config-only-auto") return "co";
-  if (mode === "manual") return "ma";
+function syncModeLabel(mode: AutoSyncMode): string {
+  if (mode === "full-auto") return "full";
+  if (mode === "config-only-auto") return "config";
+  if (mode === "manual") return "manual";
   return "off";
 }
 
-function chatSyncCode(config: PiSyncSuiteConfig): string {
-  if (config.chat.rawSessionSync) return "re";
-  if (config.chat.autoExport || config.chat.autoUpload || config.chat.autoDownload) return "ar";
+function syncModeSummary(mode: AutoSyncMode | undefined): string {
+  if (mode === "full-auto") return "pulls and pushes automatically";
+  if (mode === "config-only-auto") return "auto config sync; chat setting separate";
+  if (mode === "manual") return "only syncs when you run push or pull";
+  if (mode === "off") return "background sync disabled";
+  return "not configured";
+}
+
+function chatSyncLabel(config: PiSyncSuiteConfig): string {
+  if (config.chat.rawSessionSync) return "resume";
+  if (config.chat.autoExport || config.chat.autoUpload || config.chat.autoDownload) return "archive";
   return "off";
 }
 
-function menuLine(label: string, code: string, description: string): string {
-  return `${label} [${code}] ${dim(description)}`;
+function chatSyncSummary(config: PiSyncSuiteConfig | null): string {
+  if (!config) return "not configured";
+  if (config.chat.rawSessionSync) return "syncs real Pi sessions";
+  if (config.chat.autoExport || config.chat.autoUpload || config.chat.autoDownload) return "syncs readable chat archive";
+  return "chats are not synced";
+}
+
+function cleanupSummary(config: PiSyncSuiteConfig | null): string {
+  if (!config) return "not configured";
+  return `${config.retention.keepChatExports} chats, ${config.retention.keepBackups} backups, ${config.retention.maxAgeDays} days`;
+}
+
+function menuLine(label: string, state: string | undefined, description: string): string {
+  const suffix = state ? ` [${state}]` : "";
+  return `${label}${suffix} ${dim(description)}`;
 }
 
 function cleanChoice(value: string | undefined): string {

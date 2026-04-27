@@ -109,13 +109,15 @@ test("settings menu shows current values and submenu cancel returns to main menu
     await harness.commands.get("sync-settings").handler("", harness.ctx);
 
     const mainChoices = harness.selectCalls[0].choices.map(stripAnsi);
-    assert.ok(mainChoices.some((choice) => /^Status \[ok\].*overview/.test(choice)));
-    assert.ok(mainChoices.some((choice) => /^Sync Mode \[ma\].*auto pull\/push/.test(choice)));
-    assert.ok(mainChoices.some((choice) => /^Chat Sync \[off\].*chat behavior/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Status - show current setup/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Sync Mode \[manual\].*only syncs when you run push or pull/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Chat Sync \[off\].*chats are not synced/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Diagnostics - doctor, diff, and git log/.test(choice)));
     assert.deepEqual(
       harness.selectCalls.map((call) => call.title),
       ["Pi Sync Suite settings", "Chat sync", "Pi Sync Suite settings"],
     );
+    assert.ok(harness.selectCalls[1].choices.map(stripAnsi).some((choice) => /^Resume \[resume\].*another Pi can resume/.test(choice)));
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     await rm(root, { recursive: true, force: true });

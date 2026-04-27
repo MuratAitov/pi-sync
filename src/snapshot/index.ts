@@ -155,7 +155,7 @@ async function mergeSettings(source: string, target: string, stripKeys: string[]
 
 async function writeRepoGitignore(config: PiSyncSuiteConfig): Promise<void> {
   const lines = [
-    "# Managed by pi-sync-suite",
+    "# Managed by pi-sync",
     "",
     "# Secrets and machine-local state",
     ...config.policy.neverSyncNames

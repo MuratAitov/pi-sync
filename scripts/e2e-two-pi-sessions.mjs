@@ -35,8 +35,8 @@ async function main() {
     const deviceB = path.join(root, "device-b");
     const messageA = `pi-sync-e2e device-a ${Date.now()}`;
     const messageB = `pi-sync-e2e device-b ${Date.now()}`;
-    const sessionA = path.join("sessions", "--pi-sync-suite-e2e--", `${timestampForFile()}_device-a.jsonl`);
-    const sessionB = path.join("sessions", "--pi-sync-suite-e2e--", `${timestampForFile()}_device-b.jsonl`);
+    const sessionA = path.join("sessions", "--pi-sync-e2e--", `${timestampForFile()}_device-a.jsonl`);
+    const sessionB = path.join("sessions", "--pi-sync-e2e--", `${timestampForFile()}_device-b.jsonl`);
     const pi = createPiExecApi({ branch });
 
     console.log(`Remote: ${remoteUrl}`);
@@ -223,10 +223,10 @@ function gitEnv(extra = {}) {
   return {
     ...process.env,
     ...extra,
-    GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || "Pi Sync Suite E2E",
-    GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || "pi-sync-suite-e2e@example.invalid",
-    GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME || "Pi Sync Suite E2E",
-    GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || "pi-sync-suite-e2e@example.invalid",
+    GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || "Pi Sync E2E",
+    GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || "pi-sync-e2e@example.invalid",
+    GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME || "Pi Sync E2E",
+    GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || "pi-sync-e2e@example.invalid",
     GIT_TERMINAL_PROMPT: "0",
   };
 }

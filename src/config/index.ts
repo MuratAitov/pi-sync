@@ -36,10 +36,10 @@ export async function loadConfig(paths: SyncPaths = getDefaultPaths()): Promise<
   if (!(await pathExists(paths.configFile))) return null;
   const raw = JSON.parse(await fs.readFile(paths.configFile, "utf8")) as Partial<PiSyncSuiteConfig>;
   if (raw.version !== CONFIG_VERSION) {
-    throw new Error(`Unsupported pi-sync-suite config version: ${String(raw.version)}`);
+    throw new Error(`Unsupported pi-sync config version: ${String(raw.version)}`);
   }
   if (!raw.repoUrl) {
-    throw new Error("Missing repoUrl in pi-sync-suite config.");
+    throw new Error("Missing repoUrl in pi-sync config.");
   }
   if (/^https?:\/\//i.test(raw.repoUrl)) {
     throw new Error("HTTPS git remotes are not supported. Use an SSH URL.");

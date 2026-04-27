@@ -115,7 +115,7 @@ test("settings menu shows current values and submenu cancel returns to main menu
     assert.ok(mainChoices.some((choice) => /^Diagnostics - doctor, diff, and git log/.test(choice)));
     assert.deepEqual(
       harness.selectCalls.map((call) => call.title),
-      ["Pi Sync Suite settings", "Chat sync", "Pi Sync Suite settings"],
+      ["Pi Sync settings", "Chat sync", "Pi Sync settings"],
     );
     assert.ok(harness.selectCalls[1].choices.map(stripAnsi).some((choice) => /^Resume \[resume\].*another Pi can resume/.test(choice)));
   } finally {
@@ -145,9 +145,9 @@ test("settings status shows status text and exits settings menu", async () => {
 
     assert.deepEqual(
       harness.selectCalls.map((call) => call.title),
-      ["Pi Sync Suite settings"],
+      ["Pi Sync settings"],
     );
-    assert.match(harness.notifications.join("\n"), /Pi Sync Suite/);
+    assert.match(harness.notifications.join("\n"), /Pi Sync/);
     assert.match(harness.notifications.join("\n"), /Sync mode: manual - only syncs when you run push or pull/);
     assert.match(harness.notifications.join("\n"), /Chat sync: off - chats are not synced/);
   } finally {

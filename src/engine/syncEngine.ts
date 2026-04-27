@@ -13,7 +13,7 @@ export async function pushSnapshot(pi: PiExecApi, config: PiSyncSuiteConfig): Pr
     await exportPiChats({ piDir: paths.piDir, exportsDir: paths.chatExportDir });
   }
   const staged = await stageSnapshot(config, paths.piDir);
-  const committed = await commitAll(pi, config.repoDir, `pi-sync-suite: ${new Date().toISOString()}`);
+  const committed = await commitAll(pi, config.repoDir, `pi-sync: ${new Date().toISOString()}`);
   if (!committed) {
     return { changed: false, message: "pi-sync: nothing to upload" };
   }

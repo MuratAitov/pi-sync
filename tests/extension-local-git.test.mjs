@@ -20,10 +20,10 @@ test("extension setup can push to a fresh local bare git remote", async () => {
     const piDir = path.join(root, "agent");
     const remoteDir = path.join(root, "remote.git");
     process.env.PI_CODING_AGENT_DIR = piDir;
-    process.env.GIT_AUTHOR_NAME = "Pi Sync Suite Test";
-    process.env.GIT_AUTHOR_EMAIL = "pi-sync-suite@example.invalid";
-    process.env.GIT_COMMITTER_NAME = "Pi Sync Suite Test";
-    process.env.GIT_COMMITTER_EMAIL = "pi-sync-suite@example.invalid";
+    process.env.GIT_AUTHOR_NAME = "Pi Sync Test";
+    process.env.GIT_AUTHOR_EMAIL = "pi-sync@example.invalid";
+    process.env.GIT_COMMITTER_NAME = "Pi Sync Test";
+    process.env.GIT_COMMITTER_EMAIL = "pi-sync@example.invalid";
 
     await mkdir(path.join(piDir, "sessions", "2026"), { recursive: true });
     await mkdir(path.join(piDir, "prompts"), { recursive: true });
@@ -62,7 +62,7 @@ test("extension setup can push to a fresh local bare git remote", async () => {
     );
 
     const remoteLog = await execFileAsync("git", ["--git-dir", remoteDir, "log", "--oneline"]);
-    assert.match(remoteLog.stdout, /pi-sync-suite:/);
+    assert.match(remoteLog.stdout, /pi-sync:/);
 
     const notifications = harness.notifications.join("\n");
     assert.match(notifications, /pi-sync configured/);

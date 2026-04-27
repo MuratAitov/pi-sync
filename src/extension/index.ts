@@ -132,7 +132,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("sync-setup", {
-    description: "Configure Pi Sync Suite: /sync-setup <ssh-repo-url> [pull-interval-minutes]",
+    description: "Configure Pi Sync: /sync-setup <ssh-repo-url> [pull-interval-minutes]",
     handler: async (args, ctx) => {
       const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
       const enteredRepo = parts[0] ?? (await ctx.ui.input("Git repository URL (SSH)", "git@github.com:you/pi-config.git"));
@@ -164,7 +164,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("sync-push", {
-    description: "Upload the current Pi Sync Suite snapshot",
+    description: "Upload the current Pi Sync snapshot",
     handler: async (_args, ctx) => {
       const config = await requireConfig(ctx);
       if (!config) return;
@@ -174,7 +174,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("sync-pull", {
-    description: "Download and apply the latest Pi Sync Suite snapshot",
+    description: "Download and apply the latest Pi Sync snapshot",
     handler: async (_args, ctx) => {
       const config = await requireConfig(ctx);
       if (!config) return;
@@ -184,7 +184,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("sync-settings", {
-    description: "Open Pi Sync Suite settings",
+    description: "Open Pi Sync settings",
     handler: async (_args, ctx) => {
       await openSettings(ctx);
     },
@@ -198,7 +198,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
 
     for (;;) {
       const config = await currentConfig();
-      const section = await ctx.ui.select("Pi Sync Suite settings", await buildSettingsSections(config));
+      const section = await ctx.ui.select("Pi Sync settings", await buildSettingsSections(config));
       const sectionKey = parseSectionChoice(section);
       if (!sectionKey || sectionKey === "Cancel") return;
 

@@ -44,7 +44,7 @@ export async function runDoctor(
 
 export function formatDoctor(checks: DoctorCheck[]): string {
   return [
-    "Pi Sync Suite doctor",
+    "Pi Sync doctor",
     "",
     ...checks.map((check) => `${check.ok ? "OK" : "FAIL"} ${check.name}: ${check.message}`),
   ].join("\n");

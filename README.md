@@ -1,4 +1,4 @@
-# Pi Sync Suite
+# Pi Sync
 
 Cross-platform Pi extension for syncing portable Pi configuration, exporting chats, and keeping the sync repository clean.
 

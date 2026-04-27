@@ -20,10 +20,10 @@ test("initial clone applies remote snapshot into a clean Pi directory", async ()
   const previousCommitterEmail = process.env.GIT_COMMITTER_EMAIL;
 
   try {
-    process.env.GIT_AUTHOR_NAME = "Pi Sync Suite Test";
-    process.env.GIT_AUTHOR_EMAIL = "pi-sync-suite@example.invalid";
-    process.env.GIT_COMMITTER_NAME = "Pi Sync Suite Test";
-    process.env.GIT_COMMITTER_EMAIL = "pi-sync-suite@example.invalid";
+    process.env.GIT_AUTHOR_NAME = "Pi Sync Test";
+    process.env.GIT_AUTHOR_EMAIL = "pi-sync@example.invalid";
+    process.env.GIT_COMMITTER_NAME = "Pi Sync Test";
+    process.env.GIT_COMMITTER_EMAIL = "pi-sync@example.invalid";
 
     const remoteDir = path.join(root, "remote.git");
     await execFileAsync("git", ["init", "--bare", remoteDir]);

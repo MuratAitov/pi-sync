@@ -4,14 +4,14 @@ import { getOptionalStoreChoices } from "../snapshot/policy.js";
 export function formatStatus(config: PiSyncSuiteConfig | null, paths: SyncPaths): string {
   if (!config) {
     return [
-      "Pi Sync Suite",
+      "Pi Sync",
       "",
       "Status: not configured",
       "Run: /sync-setup <ssh-repo-url> [pull-interval-minutes]",
     ].join("\n");
   }
   return [
-    "Pi Sync Suite",
+    "Pi Sync",
     "",
     `Remote: ${config.repoUrl}`,
     `Sync mode: ${formatSyncMode(config.autoMode)}`,
@@ -59,9 +59,9 @@ export function formatCleanupPreview(candidates: CleanupCandidate[]): string {
 }
 
 export function formatStatusWidget(config: PiSyncSuiteConfig | null): string[] {
-  if (!config) return ["Pi Sync Suite: not configured", "Run /sync-setup <ssh-repo-url>"];
+  if (!config) return ["Pi Sync: not configured", "Run /sync-setup <ssh-repo-url>"];
   return [
-    `Pi Sync Suite: ${config.autoMode}`,
+    `Pi Sync: ${config.autoMode}`,
     `Remote: ${config.repoUrl}`,
     `Config: ${config.lastConfigSyncAt ?? "never"} | Chat: ${config.lastChatSyncAt ?? "never"}`,
   ];

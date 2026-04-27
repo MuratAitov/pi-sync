@@ -4,8 +4,29 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-test("extension commands mutate config policy and automation flags", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-commands-"));
+test("extension exposes only the four product commands", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-command-surface-"));
+  const previousPiDir = process.env.PI_CODING_AGENT_DIR;
+  try {
+    process.env.PI_CODING_AGENT_DIR = path.join(root, "agent");
+    const extension = (await import("../dist/index.js")).default;
+    const harness = createHarness();
+    extension(harness.pi);
+
+    assert.deepEqual([...harness.commands.keys()].sort(), [
+      "sync-pull",
+      "sync-push",
+      "sync-settings",
+      "sync-setup",
+    ]);
+  } finally {
+    restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("settings wizard mutates chat, path, mode, and cleanup policy", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-settings-"));
   const previousPiDir = process.env.PI_CODING_AGENT_DIR;
   try {
     const piDir = path.join(root, "agent");
@@ -18,21 +39,41 @@ test("extension commands mutate config policy and automation flags", async () =>
     await saveConfig(initialConfig, paths);
 
     const extension = (await import("../dist/index.js")).default;
-    const harness = createHarness();
+    const harness = createHarness({
+      selects: [
+        "Chat Sync",
+        "Resume",
+        "Chat Sync",
+        "Off",
+        "Chat Sync",
+        "Archive",
+        "Config Paths",
+        "Include AGENTS.md",
+        "Config Paths",
+        "Manual Exclude",
+        "Cleanup",
+        "Retention",
+        "Sync Mode",
+        "Manual",
+      ],
+      inputs: ["prompts/private.md", "7", "4", "9"],
+      confirms: [true, true],
+    });
     extension(harness.pi);
 
-    await harness.commands.get("sync-sessions").handler("on", harness.ctx);
-    await harness.commands.get("sync-chat-auto").handler("upload off", harness.ctx);
-    await harness.commands.get("sync-include").handler("AGENTS.md", harness.ctx);
-    await harness.commands.get("sync-exclude").handler("prompts/private.md", harness.ctx);
-    await harness.commands.get("sync-clean-policy").handler("chat=7 backups=4 days=9 auto=on", harness.ctx);
+    for (let index = 0; index < 7; index += 1) {
+      await harness.commands.get("sync-settings").handler("", harness.ctx);
+    }
 
     const config = JSON.parse(await readFile(path.join(piDir, "pi-sync-suite.json"), "utf8"));
     assert.equal(config.pullIntervalMinutes, 15);
-    assert.equal(config.chat.rawSessionSync, true);
-    assert.equal(config.chat.autoUpload, false);
-    assert.ok(config.policy.dangerouslyAllowedNames.includes("sessions"));
-    assert.ok(config.policy.includedPaths.includes("sessions"));
+    assert.equal(config.autoMode, "manual");
+    assert.equal(config.chat.rawSessionSync, false);
+    assert.equal(config.chat.autoExport, true);
+    assert.equal(config.chat.autoUpload, true);
+    assert.equal(config.chat.autoDownload, true);
+    assert.ok(!config.policy.dangerouslyAllowedNames.includes("sessions"));
+    assert.ok(!config.policy.includedPaths.includes("sessions"));
     assert.ok(config.policy.includedPaths.includes("AGENTS.md"));
     assert.ok(config.policy.excludedPaths.includes("prompts/private.md"));
     assert.deepEqual(config.retention, {
@@ -41,14 +82,40 @@ test("extension commands mutate config policy and automation flags", async () =>
       maxAgeDays: 9,
       autoApply: true,
     });
+  } finally {
+    restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
-    await harness.commands.get("sync-sessions").handler("off", harness.ctx);
-    await harness.commands.get("sync-include").handler("auth.json", harness.ctx);
-    const updated = JSON.parse(await readFile(path.join(piDir, "pi-sync-suite.json"), "utf8"));
-    assert.equal(updated.chat.rawSessionSync, false);
-    assert.ok(!updated.policy.dangerouslyAllowedNames.includes("sessions"));
-    assert.ok(!updated.policy.includedPaths.includes("sessions"));
-    assert.ok(!updated.policy.includedPaths.includes("auth.json"));
+test("settings refuses unsafe manual paths and cancelled resume sync", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-settings-safety-"));
+  const previousPiDir = process.env.PI_CODING_AGENT_DIR;
+  try {
+    const piDir = path.join(root, "agent");
+    process.env.PI_CODING_AGENT_DIR = piDir;
+    const { createDefaultConfig, saveConfig } = await import("../dist/config/index.js");
+    const { getDefaultPaths } = await import("../dist/utils/paths.js");
+    const paths = getDefaultPaths(piDir);
+    await saveConfig(createDefaultConfig("git@example.com:team/pi-config.git", paths), paths);
+
+    const extension = (await import("../dist/index.js")).default;
+    const harness = createHarness({
+      selects: ["Chat Sync", "Resume", "Config Paths", "Manual Include"],
+      inputs: ["auth.json"],
+      confirms: [false],
+    });
+    extension(harness.pi);
+
+    await harness.commands.get("sync-settings").handler("", harness.ctx);
+    await harness.commands.get("sync-settings").handler("", harness.ctx);
+
+    const config = JSON.parse(await readFile(path.join(piDir, "pi-sync-suite.json"), "utf8"));
+    assert.equal(config.chat.rawSessionSync, false);
+    assert.ok(!config.policy.includedPaths.includes("sessions"));
+    assert.ok(!config.policy.includedPaths.includes("auth.json"));
+    assert.match(harness.notifications.join("\n"), /resume chat sync cancelled/);
+    assert.match(harness.notifications.join("\n"), /refusing unsafe path auth\.json/);
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     await rm(root, { recursive: true, force: true });
@@ -78,10 +145,13 @@ test("setup rejects unsafe or invalid inputs before git execution", async () => 
   }
 });
 
-function createHarness() {
+function createHarness(options = {}) {
   const commands = new Map();
   let execCalls = 0;
   const notifications = [];
+  const selects = [...(options.selects ?? [])];
+  const inputs = [...(options.inputs ?? [])];
+  const confirms = [...(options.confirms ?? [])];
   const ctx = {
     ui: {
       notify(message) {
@@ -89,15 +159,15 @@ function createHarness() {
       },
       setStatus() {},
       setWidget() {},
-      input: async () => undefined,
-      select: async (_title, options) => options[0],
-      confirm: async () => true,
+      input: async () => inputs.shift(),
+      select: async (_title, choices) => selects.shift() ?? choices[0],
+      confirm: async () => confirms.shift() ?? true,
     },
   };
   const pi = {
     on() {},
-    registerCommand(name, options) {
-      commands.set(name, options);
+    registerCommand(name, command) {
+      commands.set(name, command);
     },
     exec: async () => {
       execCalls += 1;

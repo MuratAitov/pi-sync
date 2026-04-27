@@ -61,25 +61,21 @@ export interface StoreThisTooOptions {
 
 export const DEFAULT_COMMAND_HELP: readonly CommandHelpItem[] = [
   {
-    command: "pi-sync setup",
+    command: "/sync-setup",
     summary: "Create or update the sync configuration.",
     detail: "Requires an SSH git remote; HTTPS remotes are rejected by config loading.",
   },
   {
-    command: "pi-sync status",
-    summary: "Show repository, automation, chat, and cleanup status.",
+    command: "/sync-push",
+    summary: "Upload the current sync snapshot.",
   },
   {
-    command: "pi-sync sync",
-    summary: "Run pull/export/push according to the current mode.",
+    command: "/sync-pull",
+    summary: "Download and apply the latest sync snapshot.",
   },
   {
-    command: "pi-sync store-this-too",
-    summary: "Add an optional safe path such as AGENTS.md, CLAUDE.md, or chat exports.",
-  },
-  {
-    command: "pi-sync cleanup",
-    summary: "Preview old backups and chat exports before deleting anything.",
+    command: "/sync-settings",
+    summary: "Open status, sync mode, chat sync, path, cleanup, backup, and diagnostics settings.",
   },
 ];
 

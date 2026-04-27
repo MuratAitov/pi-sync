@@ -15,9 +15,9 @@ export function createDefaultConfig(repoUrl: string, paths: SyncPaths = getDefau
     pushDebounceMs: 2500,
     watchIntervalMs: 10000,
     chat: {
-      autoExport: true,
-      autoUpload: true,
-      autoDownload: true,
+      autoExport: false,
+      autoUpload: false,
+      autoDownload: false,
       rawSessionSync: false,
       exportFormat: "both",
       includeMetadata: true,

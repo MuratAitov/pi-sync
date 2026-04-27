@@ -9,7 +9,7 @@ import { createBackup } from "../backup/index.js";
 export async function pushSnapshot(pi: PiExecApi, config: PiSyncSuiteConfig): Promise<SyncSummary> {
   const paths = getDefaultPaths();
   await cloneIfMissing(pi, config.repoUrl, config.repoDir);
-  if (config.autoMode === "full-auto" && config.chat.autoExport && config.chat.autoUpload) {
+  if (config.chat.autoExport && config.chat.autoUpload) {
     await exportPiChats({ piDir: paths.piDir, exportsDir: paths.chatExportDir });
   }
   const staged = await stageSnapshot(config, paths.piDir);
@@ -19,7 +19,7 @@ export async function pushSnapshot(pi: PiExecApi, config: PiSyncSuiteConfig): Pr
   }
   await push(pi, config.repoDir);
   config.lastConfigSyncAt = new Date().toISOString();
-  if (config.chat.autoUpload) config.lastChatSyncAt = config.lastConfigSyncAt;
+  if (config.chat.autoUpload || config.chat.rawSessionSync) config.lastChatSyncAt = config.lastConfigSyncAt;
   await saveConfig(config, paths);
   return { changed: true, message: `pi-sync: uploaded ${staged.length} snapshot item(s)` };
 }
@@ -31,7 +31,7 @@ export async function pullSnapshot(pi: PiExecApi, config: PiSyncSuiteConfig): Pr
     const backup = await createBackup(config, paths, "before applying initial clone");
     const applied = await applySnapshot(config, paths.piDir);
     config.lastConfigSyncAt = new Date().toISOString();
-    if (config.chat.autoDownload) config.lastChatSyncAt = config.lastConfigSyncAt;
+    if (config.chat.autoDownload || config.chat.rawSessionSync) config.lastChatSyncAt = config.lastConfigSyncAt;
     await saveConfig(config, paths);
     return {
       changed: true,
@@ -47,7 +47,7 @@ export async function pullSnapshot(pi: PiExecApi, config: PiSyncSuiteConfig): Pr
   const backup = await createBackup(config, paths, `before applying ${incoming} remote commit(s)`);
   const applied = await applySnapshot(config, paths.piDir);
   config.lastConfigSyncAt = new Date().toISOString();
-  if (config.chat.autoDownload) config.lastChatSyncAt = config.lastConfigSyncAt;
+  if (config.chat.autoDownload || config.chat.rawSessionSync) config.lastChatSyncAt = config.lastConfigSyncAt;
   await saveConfig(config, paths);
   return {
     changed: true,

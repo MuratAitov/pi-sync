@@ -4,15 +4,24 @@ import { createDefaultConfig, isAutoPullEnabled, isAutoPushEnabled, loadConfig, 
 import { getDefaultPaths, normalizePortablePath } from "../utils/paths.js";
 import { getOptionalStoreChoices, shouldNeverSync } from "../snapshot/policy.js";
 import { pushSnapshot, pullSnapshot } from "../engine/syncEngine.js";
-import { exportPiChats } from "../chat/index.js";
 import { applyCleanup, planCleanup } from "../cleanup/index.js";
 import { formatCleanupPreview, formatStatus, formatStatusWidget } from "../ui/formatters.js";
-import { renderCommandHelp, renderStoreThisTooChoices } from "../ui/index.js";
 import { createSnapshotFingerprint } from "../watcher/fingerprint.js";
 import { createBackup, listBackups, restoreBackup } from "../backup/index.js";
 import { formatDoctor, runDoctor } from "../doctor/index.js";
 import { cloneIfMissing, diffStat, logOneline } from "../git/client.js";
 import { stageSnapshot } from "../snapshot/index.js";
+
+type RuntimeContext = {
+  ui: {
+    notify(message: string, type?: "info" | "warning" | "error"): void;
+    setStatus?(key: string, value: string): void;
+    setWidget?(key: string, value: string[], options?: unknown): void;
+    select?(title: string, options: string[]): Promise<string | undefined>;
+    input?(title: string, placeholder?: string): Promise<string | undefined>;
+    confirm?(title: string, message: string): Promise<boolean>;
+  };
+};
 
 export default function piSyncSuite(pi: ExtensionAPI): void {
   let configPromise = loadConfig().catch(() => null);
@@ -44,7 +53,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     lastSnapshotFingerprint = undefined;
   }
 
-  function startBackgroundWork(ctx: { ui: { notify(message: string, type?: "info" | "warning" | "error"): void } }) {
+  function startBackgroundWork(ctx: RuntimeContext) {
     stopBackgroundWork();
     void currentConfig().then((config) => {
       if (!config) return;
@@ -79,10 +88,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     });
   }
 
-  function scheduleAutoPush(
-    config: PiSyncSuiteConfig,
-    ctx: { ui: { notify(message: string, type?: "info" | "warning" | "error"): void } },
-  ): void {
+  function scheduleAutoPush(config: PiSyncSuiteConfig, ctx: RuntimeContext): void {
     if (pushDebounce) clearTimeout(pushDebounce);
     pushDebounce = setTimeout(() => {
       if (autoPushRunning) return;
@@ -148,10 +154,8 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
 
       const config = createDefaultConfig(repoUrl, paths);
       config.pullIntervalMinutes = interval;
-      await saveConfig(config, paths);
-      configPromise = Promise.resolve(config);
-      ctx.ui.setStatus("pi-sync", `${config.autoMode} -> ${repoUrl}`);
-      ctx.ui.setWidget("pi-sync", formatStatusWidget(config), { placement: "belowEditor" });
+      setChatSyncMode(config, "Off");
+      await saveAndRefresh(config, ctx);
       ctx.ui.notify(`pi-sync configured: ${repoUrl}`, "info");
       await pullSnapshot(pi, config);
       await pushSnapshot(pi, config);
@@ -159,52 +163,18 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand("sync-status", {
-    description: "Show Pi Sync Suite status",
-    handler: async (_args, ctx) => {
-      const config = await currentConfig();
-      ctx.ui.notify(formatStatus(config, paths), "info");
-    },
-  });
-
-  pi.registerCommand("sync-dashboard", {
-    description: "Show Pi Sync Suite dashboard",
-    handler: async (_args, ctx) => {
-      const config = await currentConfig();
-      ctx.ui.notify(formatStatus(config, paths), "info");
-    },
-  });
-
-  pi.registerCommand("sync-help", {
-    description: "Show Pi Sync Suite commands",
-    handler: async (_args, ctx) => {
-      ctx.ui.notify(renderCommandHelp(), "info");
-    },
-  });
-
   pi.registerCommand("sync-push", {
-    description: "Upload portable Pi config and chat exports",
+    description: "Upload the current Pi Sync Suite snapshot",
     handler: async (_args, ctx) => {
       const config = await requireConfig(ctx);
       if (!config) return;
       const summary = await pushSnapshot(pi, config);
       ctx.ui.notify(summary.message, "info");
-    },
-  });
-
-  pi.registerCommand("sync", {
-    description: "Run pull then push according to the current configuration",
-    handler: async (_args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      const pulled = await pullSnapshot(pi, config);
-      const pushed = await pushSnapshot(pi, config);
-      ctx.ui.notify(`${pulled.message}\n${pushed.message}`, "info");
     },
   });
 
   pi.registerCommand("sync-pull", {
-    description: "Download remote updates and apply portable Pi config",
+    description: "Download and apply the latest Pi Sync Suite snapshot",
     handler: async (_args, ctx) => {
       const config = await requireConfig(ctx);
       if (!config) return;
@@ -213,165 +183,127 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand("sync-export-chat", {
-    description: "Export local Pi sessions to Markdown and JSON metadata",
+  pi.registerCommand("sync-settings", {
+    description: "Open Pi Sync Suite settings",
     handler: async (_args, ctx) => {
-      const results = await exportPiChats({ piDir: paths.piDir, exportsDir: paths.chatExportDir });
-      ctx.ui.notify(`pi-sync: exported ${results.length} chat session(s)`, "info");
+      await openSettings(ctx);
     },
   });
 
-  pi.registerCommand("sync-export-chats", {
-    description: "Export local Pi sessions to Markdown and JSON metadata",
-    handler: async (_args, ctx) => {
-      const results = await exportPiChats({ piDir: paths.piDir, exportsDir: paths.chatExportDir });
-      ctx.ui.notify(`pi-sync: exported ${results.length} chat session(s)`, "info");
-    },
-  });
+  async function openSettings(ctx: RuntimeContext): Promise<void> {
+    if (!ctx.ui.select) {
+      ctx.ui.notify(formatStatus(await currentConfig(), paths), "info");
+      return;
+    }
 
-  pi.registerCommand("sync-chat-status", {
-    description: "Show chat sync status",
-    handler: async (_args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      ctx.ui.notify(
-        [
-          "Pi Sync Suite chat",
-          "",
-          `Auto export: ${config.chat.autoExport ? "on" : "off"}`,
-          `Auto upload: ${config.chat.autoUpload ? "on" : "off"}`,
-          `Auto download: ${config.chat.autoDownload ? "on" : "off"}`,
-          `Raw sessions: ${config.chat.rawSessionSync ? "on" : "off"}`,
-          `Format: ${config.chat.exportFormat}`,
-          `Exports: ${paths.chatExportDir}`,
-          `Last chat sync: ${config.lastChatSyncAt ?? "never"}`,
-        ].join("\n"),
-        "info",
+    const section = await ctx.ui.select("Pi Sync Suite settings", SETTINGS_SECTIONS);
+    if (!section || section === "Cancel") return;
+
+    if (section === "Status") {
+      ctx.ui.notify(formatStatus(await currentConfig(), paths), "info");
+      return;
+    }
+
+    const config = await requireConfig(ctx);
+    if (!config) return;
+
+    if (section === "Sync Mode") {
+      await runSyncModeSettings(config, ctx);
+    } else if (section === "Chat Sync") {
+      await runChatSettings(config, ctx);
+    } else if (section === "Config Paths") {
+      await runPathSettings(config, ctx);
+    } else if (section === "Cleanup") {
+      await runCleanupSettings(config, ctx);
+    } else if (section === "Backups") {
+      await runBackupSettings(config, ctx);
+    } else if (section === "Diagnostics") {
+      await runDiagnosticsSettings(config, ctx);
+    }
+  }
+
+  async function runSyncModeSettings(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
+    const selected = await ctx.ui.select?.("Sync mode", SYNC_MODE_CHOICES);
+    const mode = parseSyncModeChoice(selected);
+    if (!mode) return;
+    config.autoMode = mode;
+    await saveAndRefresh(config, ctx);
+    startBackgroundWork(ctx);
+    ctx.ui.notify(`pi-sync: sync mode set to ${selected}`, "info");
+  }
+
+  async function runChatSettings(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
+    const selected = await ctx.ui.select?.("Chat sync", CHAT_SYNC_CHOICES);
+    if (!isChatSyncChoice(selected)) return;
+    if (selected === "Resume") {
+      const confirmed = await ctx.ui.confirm?.(
+        "Enable Resume chat sync?",
+        "Resume sync uploads raw Pi session files. They may contain prompts, outputs, tool logs, file paths, and secrets. Use only with a private repository.",
       );
-    },
-  });
-
-  pi.registerCommand("sync-chat-upload", {
-    description: "Export local chats and upload them with the snapshot",
-    handler: async (_args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      const results = await exportPiChats({ piDir: paths.piDir, exportsDir: paths.chatExportDir });
-      const previous = config.chat.autoUpload;
-      config.chat.autoUpload = true;
-      const summary = await pushSnapshot(pi, config);
-      config.chat.autoUpload = previous;
-      await saveConfig(config, paths);
-      ctx.ui.notify(`pi-sync: exported ${results.length} chat session(s)\n${summary.message}`, "info");
-    },
-  });
-
-  pi.registerCommand("sync-chat-download", {
-    description: "Download synced chat exports from the remote repository",
-    handler: async (_args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      const previous = config.chat.autoDownload;
-      config.chat.autoDownload = true;
-      const summary = await pullSnapshot(pi, config);
-      config.chat.autoDownload = previous;
-      await saveConfig(config, paths);
-      ctx.ui.notify(summary.message, "info");
-    },
-  });
-
-  pi.registerCommand("sync-chat-auto", {
-    description: "Set chat automation: /sync-chat-auto export|upload|download on|off",
-    handler: async (args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      const [field, rawValue] = (args ?? "").trim().split(/\s+/);
-      const value = parseOnOff(rawValue);
-      if (!isChatAutoField(field) || value === undefined) {
-        ctx.ui.notify("Usage: /sync-chat-auto export|upload|download on|off", "error");
+      if (!confirmed) {
+        ctx.ui.notify("pi-sync: resume chat sync cancelled", "warning");
         return;
       }
-      if (field === "export") config.chat.autoExport = value;
-      if (field === "upload") config.chat.autoUpload = value;
-      if (field === "download") config.chat.autoDownload = value;
-      await saveConfig(config, paths);
-      configPromise = Promise.resolve(config);
-      ctx.ui.notify(`pi-sync: chat auto ${field} ${value ? "on" : "off"}`, "info");
-    },
-  });
+    }
+    setChatSyncMode(config, selected);
+    await saveAndRefresh(config, ctx);
+    ctx.ui.notify(`pi-sync: chat sync set to ${selected}`, selected === "Resume" ? "warning" : "info");
+  }
 
-  pi.registerCommand("sync-sessions", {
-    description: "Dangerous opt-in for raw Pi session sync: /sync-sessions on|off",
-    handler: async (args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      const value = parseOnOff((args ?? "").trim());
-      if (value === undefined) {
-        ctx.ui.notify("Usage: /sync-sessions on|off", "error");
+  async function runPathSettings(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
+    const choices = buildPathChoices(config);
+    const selected = await ctx.ui.select?.("Config paths", choices);
+    if (!selected || selected === "Cancel") return;
+    if (selected === "Manual Include") {
+      await updatePathPolicy(undefined, ctx, "include");
+      return;
+    }
+    if (selected === "Manual Exclude") {
+      await updatePathPolicy(undefined, ctx, "exclude");
+      return;
+    }
+
+    const [action, ...pathParts] = selected.split(" ");
+    const portablePath = pathParts.join(" ");
+    await updatePathPolicy(portablePath, ctx, action === "Exclude" ? "exclude" : "include");
+  }
+
+  async function runCleanupSettings(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
+    const selected = await ctx.ui.select?.("Cleanup", CLEANUP_CHOICES);
+    if (!selected || selected === "Cancel") return;
+
+    if (selected === "Preview") {
+      const candidates = await planCleanup(config, paths);
+      ctx.ui.notify(formatCleanupPreview(candidates), "info");
+      return;
+    }
+
+    if (selected === "Run") {
+      const candidates = await planCleanup(config, paths);
+      ctx.ui.notify(formatCleanupPreview(candidates), candidates.length ? "warning" : "info");
+      if (candidates.length === 0) return;
+      const confirmed = await ctx.ui.confirm?.("pi-sync cleanup", `Delete ${candidates.length} cleanup candidate(s)?`);
+      if (!confirmed) {
+        ctx.ui.notify("pi-sync cleanup cancelled", "warning");
         return;
       }
-      config.chat.rawSessionSync = value;
-      if (value) {
-        addUnique(config.policy.dangerouslyAllowedNames, "sessions");
-        addUnique(config.policy.includedPaths, "sessions");
-        config.policy.excludedPaths = config.policy.excludedPaths.filter((item) => item !== "sessions");
-        ctx.ui.notify(
-          "pi-sync: raw session sync enabled. This can upload full prompts, outputs, tool logs, and secrets. Use only with a private repo you trust.",
-          "warning",
-        );
-      } else {
-        config.policy.dangerouslyAllowedNames = config.policy.dangerouslyAllowedNames.filter((item) => item !== "sessions");
-        config.policy.includedPaths = config.policy.includedPaths.filter((item) => item !== "sessions");
-        ctx.ui.notify("pi-sync: raw session sync disabled", "info");
-      }
-      await saveConfig(config, paths);
-      configPromise = Promise.resolve(config);
-    },
-  });
+      const deleted = await applyCleanup(candidates);
+      ctx.ui.notify(`pi-sync cleanup: deleted ${deleted} item(s)`, "info");
+      return;
+    }
 
-  pi.registerCommand("sync-diff", {
-    description: "Show pending local snapshot diff against the sync repository",
-    handler: async (_args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      await cloneIfMissing(pi, config.repoUrl, config.repoDir);
-      await stageSnapshot(config, paths.piDir);
-      const diff = await diffStat(pi, config.repoDir);
-      ctx.ui.notify(diff || "pi-sync: no local snapshot diff", "info");
-    },
-  });
+    await updateRetentionPolicy(config, ctx);
+  }
 
-  pi.registerCommand("sync-log", {
-    description: "Show recent sync repository commits",
-    handler: async (_args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      await cloneIfMissing(pi, config.repoUrl, config.repoDir);
-      ctx.ui.notify((await logOneline(pi, config.repoDir)) || "pi-sync: no commits", "info");
-    },
-  });
-
-  pi.registerCommand("sync-doctor", {
-    description: "Run Pi Sync Suite diagnostics",
-    handler: async (_args, ctx) => {
-      const config = await currentConfig();
-      ctx.ui.notify(formatDoctor(await runDoctor(pi, config, paths)), "info");
-    },
-  });
-
-  pi.registerCommand("sync-backup", {
-    description: "Create a local backup of current managed Pi files",
-    handler: async (_args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
+  async function runBackupSettings(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
+    const selected = await ctx.ui.select?.("Backups", BACKUP_CHOICES);
+    if (!selected || selected === "Cancel") return;
+    if (selected === "Create Backup") {
       const backup = await createBackup(config, paths, "manual backup");
       ctx.ui.notify(`pi-sync: backup ${backup.id} created with ${backup.includedPaths.length} item(s)`, "info");
-    },
-  });
-
-  pi.registerCommand("sync-backups", {
-    description: "List local backups",
-    handler: async (_args, ctx) => {
+      return;
+    }
+    if (selected === "List Backups") {
       const backups = await listBackups(paths);
       ctx.ui.notify(
         backups.length
@@ -379,155 +311,67 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
           : "pi-sync: no backups",
         "info",
       );
-    },
-  });
+      return;
+    }
+    const id = (await ctx.ui.input?.("Backup id", "latest"))?.trim() || "latest";
+    const restored = await restoreBackup(paths, id);
+    ctx.ui.notify(restored ? `pi-sync: restored backup ${restored.id}` : `pi-sync: backup not found: ${id}`, restored ? "info" : "error");
+  }
 
-  pi.registerCommand("sync-restore", {
-    description: "Restore a local backup: /sync-restore [backup-id|latest]",
-    handler: async (args, ctx) => {
-      const id = (args ?? "").trim() || "latest";
-      const restored = await restoreBackup(paths, id);
-      if (!restored) {
-        ctx.ui.notify(`pi-sync: backup not found: ${id}`, "error");
-        return;
-      }
-      ctx.ui.notify(`pi-sync: restored backup ${restored.id}`, "info");
-    },
-  });
+  async function runDiagnosticsSettings(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
+    const selected = await ctx.ui.select?.("Diagnostics", DIAGNOSTIC_CHOICES);
+    if (!selected || selected === "Cancel") return;
+    if (selected === "Doctor") {
+      ctx.ui.notify(formatDoctor(await runDoctor(pi, config, paths)), "info");
+      return;
+    }
+    await cloneIfMissing(pi, config.repoUrl, config.repoDir);
+    if (selected === "Diff") {
+      await stageSnapshot(config, paths.piDir);
+      ctx.ui.notify((await diffStat(pi, config.repoDir)) || "pi-sync: no local snapshot diff", "info");
+      return;
+    }
+    ctx.ui.notify((await logOneline(pi, config.repoDir)) || "pi-sync: no commits", "info");
+  }
 
-  pi.registerCommand("sync-clean-preview", {
-    description: "Preview cleanup candidates without deleting anything",
-    handler: async (_args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      const candidates = await planCleanup(config, paths);
-      ctx.ui.notify(formatCleanupPreview(candidates), "info");
-    },
-  });
+  async function updateRetentionPolicy(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
+    if (!ctx.ui.input) {
+      ctx.ui.notify("pi-sync: this Pi UI cannot edit retention values", "error");
+      return;
+    }
 
-  pi.registerCommand("sync-clean-run", {
-    description: "Delete cleanup candidates after confirmation",
-    handler: async (_args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      const candidates = await planCleanup(config, paths);
-      ctx.ui.notify(formatCleanupPreview(candidates), candidates.length ? "warning" : "info");
-      if (candidates.length === 0) return;
-      const confirmed = await ctx.ui.confirm("pi-sync cleanup", `Delete ${candidates.length} cleanup candidate(s)?`);
-      if (!confirmed) {
-        ctx.ui.notify("pi-sync cleanup cancelled", "warning");
-        return;
-      }
-      const deleted = await applyCleanup(candidates);
-      ctx.ui.notify(`pi-sync cleanup: deleted ${deleted} item(s)`, "info");
-    },
-  });
+    const chat = parseOptionalPositiveInt(
+      await ctx.ui.input("Keep chat export files", String(config.retention.keepChatExports)),
+    );
+    const backups = parseOptionalPositiveInt(
+      await ctx.ui.input("Keep backup files", String(config.retention.keepBackups)),
+    );
+    const days = parseOptionalPositiveInt(
+      await ctx.ui.input("Delete files older than days", String(config.retention.maxAgeDays)),
+    );
+    if (chat === undefined || backups === undefined || days === undefined) {
+      ctx.ui.notify("pi-sync: retention values must be non-negative numbers", "error");
+      return;
+    }
+    config.retention.keepChatExports = chat;
+    config.retention.keepBackups = backups;
+    config.retention.maxAgeDays = days;
+    config.retention.autoApply = (await ctx.ui.confirm?.("Auto cleanup", "Automatically apply cleanup during future maintenance?")) ?? false;
+    await saveAndRefresh(config, ctx);
+    ctx.ui.notify(
+      `pi-sync cleanup policy: chat=${chat}, backups=${backups}, days=${days}, auto=${config.retention.autoApply ? "on" : "off"}`,
+      "info",
+    );
+  }
 
-  pi.registerCommand("sync-auto", {
-    description: "Set automation mode: /sync-auto full-auto|config-only-auto|chats-manual|manual|off",
-    handler: async (args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      const requested = (args ?? "").trim();
-      const mode = requested
-        ? parseAutoMode(requested)
-        : parseAutoMode(await ctx.ui.select("Pi sync auto mode", AUTO_MODES));
-      if (!mode) {
-        ctx.ui.notify(`pi-sync: mode must be one of ${AUTO_MODES.join(", ")}`, "error");
-        return;
-      }
-      config.autoMode = mode;
-      applyModeDefaults(config);
-      await saveConfig(config, paths);
-      configPromise = Promise.resolve(config);
-      startBackgroundWork(ctx);
-      ctx.ui.setStatus("pi-sync", `${config.autoMode} -> ${config.repoUrl}`);
-      ctx.ui.setWidget("pi-sync", formatStatusWidget(config), { placement: "belowEditor" });
-      ctx.ui.notify(`pi-sync: auto mode set to ${mode}`, "info");
-    },
-  });
+  async function saveAndRefresh(config: PiSyncSuiteConfig, ctx?: RuntimeContext): Promise<void> {
+    await saveConfig(config, paths);
+    configPromise = Promise.resolve(config);
+    ctx?.ui.setStatus?.("pi-sync", `${config.autoMode} -> ${config.repoUrl}`);
+    ctx?.ui.setWidget?.("pi-sync", formatStatusWidget(config), { placement: "belowEditor" });
+  }
 
-  pi.registerCommand("sync-store-this-too", {
-    description: "Opt into an optional safe path: /sync-store-this-too [path]",
-    handler: async (args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      const rawPath = (args ?? "").trim();
-      const choices = getOptionalStoreChoices(config.policy);
-      const selected = rawPath || (await choosePath(ctx, choices, config.policy.includedPaths));
-      if (!selected) {
-        ctx.ui.notify(renderStoreThisTooChoices(choices, { alreadyIncluded: config.policy.includedPaths }), "info");
-        return;
-      }
-      const portablePath = normalizePortablePath(selected);
-      if (!portablePath || shouldNeverSync(portablePath, config.policy)) {
-        ctx.ui.notify(`pi-sync: refusing unsafe path ${selected}`, "error");
-        return;
-      }
-      if (!config.policy.includedPaths.includes(portablePath)) {
-        config.policy.includedPaths.push(portablePath);
-        config.policy.includedPaths.sort();
-      }
-      await saveConfig(config, paths);
-      configPromise = Promise.resolve(config);
-      ctx.ui.notify(`pi-sync: will store ${portablePath}`, "info");
-    },
-  });
-
-  pi.registerCommand("sync-include", {
-    description: "Include a relative Pi agent path in future snapshots",
-    handler: async (args, ctx) => {
-      await updatePathPolicy(args, ctx, "include");
-    },
-  });
-
-  pi.registerCommand("sync-exclude", {
-    description: "Exclude a relative Pi agent path from future snapshots",
-    handler: async (args, ctx) => {
-      await updatePathPolicy(args, ctx, "exclude");
-    },
-  });
-
-  pi.registerCommand("sync-clean-policy", {
-    description: "Set cleanup policy: /sync-clean-policy chat=<n> backups=<n> days=<n> auto=on|off",
-    handler: async (args, ctx) => {
-      const config = await requireConfig(ctx);
-      if (!config) return;
-      const updates = parseKeyValues(args ?? "");
-      const chat = parseOptionalPositiveInt(updates.chat);
-      const backups = parseOptionalPositiveInt(updates.backups);
-      const days = parseOptionalPositiveInt(updates.days);
-      const auto = parseOnOff(updates.auto);
-      if (updates.chat !== undefined && chat === undefined) {
-        ctx.ui.notify("pi-sync: chat must be a positive number", "error");
-        return;
-      }
-      if (updates.backups !== undefined && backups === undefined) {
-        ctx.ui.notify("pi-sync: backups must be a positive number", "error");
-        return;
-      }
-      if (updates.days !== undefined && days === undefined) {
-        ctx.ui.notify("pi-sync: days must be a positive number", "error");
-        return;
-      }
-      if (updates.auto !== undefined && auto === undefined) {
-        ctx.ui.notify("pi-sync: auto must be on or off", "error");
-        return;
-      }
-      if (chat !== undefined) config.retention.keepChatExports = chat;
-      if (backups !== undefined) config.retention.keepBackups = backups;
-      if (days !== undefined) config.retention.maxAgeDays = days;
-      if (auto !== undefined) config.retention.autoApply = auto;
-      await saveConfig(config, paths);
-      configPromise = Promise.resolve(config);
-      ctx.ui.notify(
-        `pi-sync cleanup policy: chat=${config.retention.keepChatExports}, backups=${config.retention.keepBackups}, days=${config.retention.maxAgeDays}, auto=${config.retention.autoApply ? "on" : "off"}`,
-        "info",
-      );
-    },
-  });
-
-  async function requireConfig(ctx: { ui: { notify(message: string, type?: "info" | "warning" | "error"): void } }) {
+  async function requireConfig(ctx: RuntimeContext): Promise<PiSyncSuiteConfig | null> {
     const config = await currentConfig();
     if (!config) {
       ctx.ui.notify("pi-sync: not configured. Run /sync-setup <ssh-repo-url>", "warning");
@@ -537,12 +381,12 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
 
   async function updatePathPolicy(
     args: string | undefined,
-    ctx: { ui: { notify(message: string, type?: "info" | "warning" | "error"): void; input(title: string, placeholder?: string): Promise<string | undefined> } },
+    ctx: RuntimeContext,
     action: "include" | "exclude",
   ): Promise<void> {
     const config = await requireConfig(ctx);
     if (!config) return;
-    const entered = (args ?? "").trim() || (await ctx.ui.input(`Path to ${action}`, "AGENTS.md"))?.trim();
+    const entered = (args ?? "").trim() || (await ctx.ui.input?.(`Path to ${action}`, "AGENTS.md"))?.trim();
     if (!entered) {
       ctx.ui.notify(`pi-sync: ${action} cancelled`, "warning");
       return;
@@ -559,43 +403,63 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       addUnique(config.policy.excludedPaths, portablePath);
       config.policy.includedPaths = config.policy.includedPaths.filter((item) => item !== portablePath);
     }
-    await saveConfig(config, paths);
-    configPromise = Promise.resolve(config);
+    await saveAndRefresh(config, ctx);
     ctx.ui.notify(`pi-sync: ${action}d ${portablePath}`, "info");
   }
 }
 
-const AUTO_MODES: AutoSyncMode[] = ["full-auto", "config-only-auto", "chats-manual", "manual", "off"];
+const SETTINGS_SECTIONS = [
+  "Status",
+  "Sync Mode",
+  "Chat Sync",
+  "Config Paths",
+  "Cleanup",
+  "Backups",
+  "Diagnostics",
+  "Cancel",
+];
 
-function parseAutoMode(value: string | undefined): AutoSyncMode | undefined {
-  if (!value) return undefined;
-  return AUTO_MODES.find((mode) => mode === value.trim());
-}
+const SYNC_MODE_CHOICES = ["Full Sync", "Config Only", "Manual", "Off", "Cancel"];
+const CHAT_SYNC_CHOICES = ["Off", "Archive", "Resume", "Cancel"];
+const CLEANUP_CHOICES = ["Preview", "Run", "Retention", "Cancel"];
+const BACKUP_CHOICES = ["Create Backup", "List Backups", "Restore Latest", "Cancel"];
+const DIAGNOSTIC_CHOICES = ["Doctor", "Diff", "Log", "Cancel"];
 
-function applyModeDefaults(config: PiSyncSuiteConfig): void {
-  config.chat.autoExport = config.autoMode === "full-auto" || config.autoMode === "chats-manual";
-  config.chat.autoUpload = config.autoMode === "full-auto";
-  config.chat.autoDownload = config.autoMode === "full-auto";
-}
-
-function isChatAutoField(value: string | undefined): value is "export" | "upload" | "download" {
-  return value === "export" || value === "upload" || value === "download";
-}
-
-function parseOnOff(value: string | undefined): boolean | undefined {
-  if (value === "on" || value === "true" || value === "1") return true;
-  if (value === "off" || value === "false" || value === "0") return false;
+function parseSyncModeChoice(value: string | undefined): AutoSyncMode | undefined {
+  if (value === "Full Sync") return "full-auto";
+  if (value === "Config Only") return "config-only-auto";
+  if (value === "Manual") return "manual";
+  if (value === "Off") return "off";
   return undefined;
 }
 
-function parseKeyValues(args: string): Record<string, string> {
-  const values: Record<string, string> = {};
-  for (const part of args.trim().split(/\s+/).filter(Boolean)) {
-    const index = part.indexOf("=");
-    if (index <= 0) continue;
-    values[part.slice(0, index)] = part.slice(index + 1);
+function isChatSyncChoice(value: string | undefined): value is "Off" | "Archive" | "Resume" {
+  return value === "Off" || value === "Archive" || value === "Resume";
+}
+
+function setChatSyncMode(config: PiSyncSuiteConfig, mode: "Off" | "Archive" | "Resume"): void {
+  config.chat.rawSessionSync = mode === "Resume";
+  config.chat.autoExport = mode === "Archive";
+  config.chat.autoUpload = mode === "Archive";
+  config.chat.autoDownload = mode === "Archive";
+  if (mode === "Resume") {
+    addUnique(config.policy.dangerouslyAllowedNames, "sessions");
+    addUnique(config.policy.includedPaths, "sessions");
+    config.policy.excludedPaths = config.policy.excludedPaths.filter((item) => item !== "sessions");
+  } else {
+    config.policy.dangerouslyAllowedNames = config.policy.dangerouslyAllowedNames.filter((item) => item !== "sessions");
+    config.policy.includedPaths = config.policy.includedPaths.filter((item) => item !== "sessions");
   }
-  return values;
+}
+
+function buildPathChoices(config: PiSyncSuiteConfig): string[] {
+  const optionalChoices = getOptionalStoreChoices(config.policy);
+  const choices: string[] = [];
+  for (const item of optionalChoices) {
+    choices.push(config.policy.includedPaths.includes(item) ? `Exclude ${item}` : `Include ${item}`);
+  }
+  choices.push("Manual Include", "Manual Exclude", "Cancel");
+  return choices;
 }
 
 function parseOptionalPositiveInt(value: string | undefined): number | undefined {
@@ -607,19 +471,6 @@ function parseOptionalPositiveInt(value: string | undefined): number | undefined
 function addUnique(values: string[], value: string): void {
   if (!values.includes(value)) values.push(value);
   values.sort();
-}
-
-async function choosePath(
-  ctx: { ui: { select(title: string, options: string[]): Promise<string | undefined>; input(title: string, placeholder?: string): Promise<string | undefined> } },
-  choices: string[],
-  included: string[],
-): Promise<string | undefined> {
-  const selectable = choices.filter((choice) => !included.includes(choice));
-  if (selectable.length > 0) {
-    const selected = await ctx.ui.select("Store this too", [...selectable, "Manual path"]);
-    if (selected !== "Manual path") return selected;
-  }
-  return ctx.ui.input("Path to store", "AGENTS.md");
 }
 
 function errorMessage(error: unknown): string {

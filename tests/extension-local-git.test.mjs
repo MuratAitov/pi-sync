@@ -42,13 +42,12 @@ test("extension setup can push to a fresh local bare git remote", async () => {
     await execFileAsync("git", ["init", "--bare", remoteDir]);
 
     const extension = (await import("../dist/index.js")).default;
-    const harness = createHarness();
+    const harness = createHarness({ selects: ["Chat Sync", "Archive"] });
     extension(harness.pi);
 
     await harness.commands.get("sync-setup").handler(`${remoteDir} 1440`, harness.ctx);
-    await harness.commands.get("sync-export-chat").handler("", harness.ctx);
+    await harness.commands.get("sync-settings").handler("", harness.ctx);
     await harness.commands.get("sync-push").handler("", harness.ctx);
-    await harness.commands.get("sync-status").handler("", harness.ctx);
     await harness.events.get("session_shutdown")?.({}, harness.ctx);
 
     const config = JSON.parse(await readFile(path.join(piDir, "pi-sync-suite.json"), "utf8"));
@@ -57,14 +56,17 @@ test("extension setup can push to a fresh local bare git remote", async () => {
 
     const repoSettings = JSON.parse(await readFile(path.join(piDir, "sync-suite-repo", "settings.json"), "utf8"));
     assert.deepEqual(repoSettings, { theme: "dark" });
+    assert.match(
+      await readFile(path.join(piDir, "sync-suite-repo", "sync-suite-chat-exports", "2026__demo.md"), "utf8"),
+      /hello/,
+    );
 
     const remoteLog = await execFileAsync("git", ["--git-dir", remoteDir, "log", "--oneline"]);
     assert.match(remoteLog.stdout, /pi-sync-suite:/);
 
     const notifications = harness.notifications.join("\n");
     assert.match(notifications, /pi-sync configured/);
-    assert.match(notifications, /exported 1 chat session/);
-    assert.match(notifications, /Pi Sync Suite/);
+    assert.match(notifications, /chat sync set to Archive/);
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     restoreEnv("GIT_AUTHOR_NAME", previousAuthorName);
@@ -75,10 +77,11 @@ test("extension setup can push to a fresh local bare git remote", async () => {
   }
 });
 
-function createHarness() {
+function createHarness(options = {}) {
   const commands = new Map();
   const events = new Map();
   const notifications = [];
+  const selects = [...(options.selects ?? [])];
   const ctx = {
     ui: {
       notify(message) {
@@ -87,7 +90,7 @@ function createHarness() {
       setStatus() {},
       setWidget() {},
       input: async () => undefined,
-      select: async (_title, options) => options[0],
+      select: async (_title, choices) => selects.shift() ?? choices[0],
       confirm: async () => true,
     },
   };

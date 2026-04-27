@@ -39,32 +39,19 @@ The optional pull interval defaults to `1440` minutes. The extension stores its 
 ## Commands
 
 - `/sync-setup <ssh-repo-url> [pull-interval-minutes]` configures the extension.
-- `/sync-status` shows mode, paths, chat settings, cleanup settings, and last sync timestamps.
-- `/sync-dashboard` shows the same status output as `/sync-status`.
-- `/sync-help` lists the native Pi commands.
-- `/sync` runs pull then push according to the current configuration.
-- `/sync-push` uploads portable config and chat exports.
-- `/sync-pull` downloads remote updates and applies portable config.
-- `/sync-diff` stages the current safe snapshot and shows the Git diff summary.
-- `/sync-log` shows recent sync repository commits.
-- `/sync-doctor` runs diagnostics for Git, config, paths, and remote style.
-- `/sync-export-chat` exports local Pi sessions to Markdown and JSON metadata.
-- `/sync-export-chats` is an alias for `/sync-export-chat`.
-- `/sync-chat-status` shows chat automation and export paths.
-- `/sync-chat-upload` exports chats and uploads them with the snapshot.
-- `/sync-chat-download` downloads synced chat exports from the remote.
-- `/sync-chat-auto export|upload|download on|off` changes chat automation flags.
-- `/sync-sessions on|off` explicitly enables or disables raw Pi `sessions/` sync.
-- `/sync-clean-preview` previews cleanup candidates without deleting anything.
-- `/sync-clean-run` deletes cleanup candidates only after confirmation.
-- `/sync-clean-policy chat=<n> backups=<n> days=<n> auto=on|off` changes retention settings.
-- `/sync-backup` creates a local backup of managed files.
-- `/sync-backups` lists local backups.
-- `/sync-restore [backup-id|latest]` restores a local backup.
-- `/sync-auto <mode>` changes automation mode. Valid modes are `full-auto`, `config-only-auto`, `chats-manual`, `manual`, and `off`.
-- `/sync-store-this-too [path]` opts into an optional path.
-- `/sync-include <path>` includes a relative Pi agent path in future snapshots.
-- `/sync-exclude <path>` excludes a relative Pi agent path from future snapshots.
+- `/sync-push` uploads the current snapshot.
+- `/sync-pull` downloads and applies the latest snapshot.
+- `/sync-settings` opens the settings wizard.
+
+Everything else is configured inside `/sync-settings` so the Pi command list stays small. The settings wizard currently contains:
+
+- `Status`
+- `Sync Mode`
+- `Chat Sync`
+- `Config Paths`
+- `Cleanup`
+- `Backups`
+- `Diagnostics`
 
 ## Project Structure
 
@@ -89,15 +76,14 @@ scripts/                   development utilities
 
 ## Auto Modes
 
-`/sync-setup` starts in `full-auto`.
+`/sync-setup` starts in `full-auto` for config sync, with chat sync off by default.
 
-- `full-auto`: pulls on session start and on the configured interval, polls the safe sync scope for debounced pushes, exports chats during push, uploads chat exports, and applies downloaded chat exports.
-- `config-only-auto`: pulls on session start and on the configured interval, polls the safe sync scope for debounced pushes, but disables chat auto export, upload, and download.
-- `chats-manual`: enables manual chat export defaults, but does not start automatic config pull or push watchers.
-- `manual`: disables automatic config and chat activity. Use `/sync-push`, `/sync-pull`, and `/sync-export-chat` explicitly.
+- `full-auto`: pulls on session start and on the configured interval, and polls the safe sync scope for debounced pushes.
+- `config-only-auto`: same automation behavior as `full-auto`; chat behavior is still controlled separately by `Chat Sync`.
+- `manual`: disables automatic pull and push. Use `/sync-push` and `/sync-pull` explicitly.
 - `off`: disables automatic config and chat activity.
 
-Changing modes with `/sync-auto` also resets the chat automation flags to the mode defaults.
+Change this from `/sync-settings` -> `Sync Mode`.
 
 ## Safe Defaults
 
@@ -112,73 +98,46 @@ Before upload, files are scanned for common secret-like patterns such as private
 
 The sync repository also receives a managed `.gitignore` that excludes machine-local and sensitive names.
 
-## Store This Too
+## Config Paths
 
-Use `/sync-store-this-too` to opt into optional safe paths. Without an argument, Pi prompts from the known optional choices:
+Use `/sync-settings` -> `Config Paths` to opt into optional safe paths:
 
 - `AGENTS.md`
 - `CLAUDE.md`
 - `extensions`
 - `sync-suite-chat-exports`
 
-You can pass a relative path directly:
-
-```text
-/sync-store-this-too AGENTS.md
-```
-
 Paths are normalized to portable forward-slash form and must stay inside the Pi agent directory. Paths containing unsafe names are refused.
 
-`/sync-include` and `/sync-exclude` expose the same path policy directly for users who want manual control beyond the suggested optional choices.
+The same screen also has manual include and exclude actions for advanced users.
 
-## Chat Export And Import Behavior
+## Chat Sync
 
-`/sync-export-chat` scans `sessions/**/*.jsonl` under the Pi agent directory and writes exports to `sync-suite-chat-exports`.
+Use `/sync-settings` -> `Chat Sync`.
 
-For each source session it writes:
+- `Off`: do not sync chats.
+- `Archive`: export local `sessions/**/*.jsonl` to readable Markdown and JSON metadata under `sync-suite-chat-exports`, then sync those archive files.
+- `Resume`: sync the real Pi `sessions/` tree so another Pi environment can show the same session tree and resume sessions.
 
-- A Markdown transcript: `<portable-session-path>.md`
-- JSON metadata: `<portable-session-path>.metadata.json`
+Archive mode writes:
+
+- Markdown transcript files: `<portable-session-path>.md`
+- JSON metadata files: `<portable-session-path>.metadata.json`
 
 Metadata includes the source path, relative session path, session id, export time, message count, skipped line count, source modified time, source size, and generated output paths. Malformed JSONL lines or records without recognizable message content are counted as skipped.
 
-In `full-auto`, `/sync-push` exports chats before staging and uploads `sync-suite-chat-exports`. In other modes, run `/sync-export-chat` explicitly. `/sync-chat-upload` temporarily enables chat upload for one manual upload, and `/sync-chat-download` temporarily enables chat download for one manual pull.
-
-There is no command that imports exported Markdown or metadata back into live Pi `sessions`. Pull behavior only applies the `sync-suite-chat-exports` directory when chat download is enabled, making exported transcripts available on the receiving machine without recreating original session JSONL files.
-
-## Raw Session Sync
-
-Markdown chat exports are safe for browsing, but they do not make `pi continue` or the session tree work on another machine. For that, enable raw session sync explicitly:
-
-```text
-/sync-sessions on
-/sync-push
-```
-
-Then on another Pi environment:
-
-```text
-/sync-pull
-```
-
-This syncs the real `sessions/` tree so Pi can see prior sessions. It is intentionally off by default because raw sessions may contain full prompts, model outputs, tool logs, file paths, and secrets. Use it only with a private repo you control.
-
-Disable it again with:
-
-```text
-/sync-sessions off
-```
+Archive is useful for reading, search, and audit history, but it does not recreate live Pi sessions. Resume mode is intentionally explicit because raw sessions may contain prompts, model outputs, tool logs, file paths, and secrets. Use Resume only with a private repository you control.
 
 ## Cleanup
 
 Cleanup is preview-first:
 
 ```text
-/sync-clean-preview
-/sync-clean-run
+/sync-settings -> Cleanup -> Preview
+/sync-settings -> Cleanup -> Run
 ```
 
-The default retention policy keeps the newest `100` chat export files, the newest `20` backup files, and anything newer than `180` days. `autoApply` defaults to `false`, so cleanup only deletes after `/sync-clean-run` shows the candidates and the user confirms.
+The default retention policy keeps the newest `100` chat export files, the newest `20` backup files, and anything newer than `180` days. `autoApply` defaults to `false`, so cleanup only deletes after the settings wizard shows the candidates and the user confirms.
 
 Cleanup only considers files under:
 
@@ -200,14 +159,7 @@ Cross-machine restore from the Git remote is done by configuring the same SSH re
 
 Pull uses `git pull --ff-only` and applies the safe snapshot into the Pi agent directory. `settings.json` is merged with local settings; other synced files and directories are replaced from the repository copy.
 
-Local backup commands are available:
-
-```text
-/sync-backup
-/sync-backups
-/sync-restore latest
-/sync-restore <backup-id>
-```
+Local backup actions are available from `/sync-settings` -> `Backups`.
 
 These commands operate only on local `sync-suite-backups`; they do not force-push or rewrite remote history.
 
@@ -215,7 +167,7 @@ These commands operate only on local `sync-suite-backups`; they do not force-pus
 
 - Linux, macOS, and Windows are supported through Node.js path handling.
 - The Pi agent directory is `~/.pi/agent` by default, or `PI_CODING_AGENT_DIR` when set.
-- Paths passed to `/sync-store-this-too` may use `/` or `\`; they are normalized to portable `/` paths.
+- Paths entered in `/sync-settings` may use `/` or `\`; they are normalized to portable `/` paths.
 - Git must be installed and available to Pi.
 - SSH authentication must already work outside Pi because Git prompts are disabled.
 - The sync remote should have an upstream branch configured so `HEAD..@{u}` and `git pull --ff-only` work.
@@ -225,7 +177,7 @@ These commands operate only on local `sync-suite-backups`; they do not force-pus
 The extension refuses any path containing these names:
 
 - `auth.json`
-- `sessions` unless `/sync-sessions on` was explicitly enabled
+- `sessions` unless `Chat Sync` is set to `Resume`
 - `git`
 - `npm`
 - `bin`

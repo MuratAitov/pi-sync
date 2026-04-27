@@ -45,13 +45,15 @@ The optional pull interval defaults to `1440` minutes. The extension stores its 
 
 Everything else is configured inside `/sync-settings` so the Pi command list stays small. The settings wizard currently contains:
 
-- `Status`
-- `Sync Mode`
-- `Chat Sync`
-- `Config Paths`
-- `Cleanup`
-- `Backups`
-- `Diagnostics`
+- `Status [ok/off]` - overview
+- `Sync Mode [fu/co/ma/off]` - auto pull/push behavior
+- `Chat Sync [off/ar/re]` - chat behavior
+- `Config Paths [n]` - extra included paths
+- `Cleanup [on/off]` - retention behavior
+- `Backups [n]` - local restore points
+- `Diagnostics [ok/off]` - doctor, diff, and log
+
+Inside a settings section, `Cancel` returns to the main settings menu. `Cancel` on the main menu closes settings. The short codes are ASCII-only so the menu renders consistently across Linux, macOS, and Windows terminals.
 
 ## Project Structure
 

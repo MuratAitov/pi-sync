@@ -55,15 +55,14 @@ test("settings wizard mutates chat, path, mode, and cleanup policy", async () =>
         "Retention",
         "Sync Mode",
         "Manual",
+        "Cancel",
       ],
       inputs: ["prompts/private.md", "7", "4", "9"],
       confirms: [true, true],
     });
     extension(harness.pi);
 
-    for (let index = 0; index < 7; index += 1) {
-      await harness.commands.get("sync-settings").handler("", harness.ctx);
-    }
+    await harness.commands.get("sync-settings").handler("", harness.ctx);
 
     const config = JSON.parse(await readFile(path.join(piDir, "pi-sync-suite.json"), "utf8"));
     assert.equal(config.pullIntervalMinutes, 15);
@@ -88,6 +87,41 @@ test("settings wizard mutates chat, path, mode, and cleanup policy", async () =>
   }
 });
 
+test("settings menu shows current values and submenu cancel returns to main menu", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-settings-labels-"));
+  const previousPiDir = process.env.PI_CODING_AGENT_DIR;
+  try {
+    const piDir = path.join(root, "agent");
+    process.env.PI_CODING_AGENT_DIR = piDir;
+    const { createDefaultConfig, saveConfig } = await import("../dist/config/index.js");
+    const { getDefaultPaths } = await import("../dist/utils/paths.js");
+    const paths = getDefaultPaths(piDir);
+    const config = createDefaultConfig("git@example.com:team/pi-config.git", paths);
+    config.autoMode = "manual";
+    await saveConfig(config, paths);
+
+    const extension = (await import("../dist/index.js")).default;
+    const harness = createHarness({
+      selects: ["Chat Sync", "Cancel", "Cancel"],
+    });
+    extension(harness.pi);
+
+    await harness.commands.get("sync-settings").handler("", harness.ctx);
+
+    const mainChoices = harness.selectCalls[0].choices.map(stripAnsi);
+    assert.ok(mainChoices.some((choice) => /^Status \[ok\].*overview/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Sync Mode \[ma\].*auto pull\/push/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Chat Sync \[off\].*chat behavior/.test(choice)));
+    assert.deepEqual(
+      harness.selectCalls.map((call) => call.title),
+      ["Pi Sync Suite settings", "Chat sync", "Pi Sync Suite settings"],
+    );
+  } finally {
+    restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("settings refuses unsafe manual paths and cancelled resume sync", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-settings-safety-"));
   const previousPiDir = process.env.PI_CODING_AGENT_DIR;
@@ -101,13 +135,12 @@ test("settings refuses unsafe manual paths and cancelled resume sync", async () 
 
     const extension = (await import("../dist/index.js")).default;
     const harness = createHarness({
-      selects: ["Chat Sync", "Resume", "Config Paths", "Manual Include"],
+      selects: ["Chat Sync", "Resume", "Config Paths", "Manual Include", "Cancel"],
       inputs: ["auth.json"],
       confirms: [false],
     });
     extension(harness.pi);
 
-    await harness.commands.get("sync-settings").handler("", harness.ctx);
     await harness.commands.get("sync-settings").handler("", harness.ctx);
 
     const config = JSON.parse(await readFile(path.join(piDir, "pi-sync-suite.json"), "utf8"));
@@ -152,6 +185,7 @@ function createHarness(options = {}) {
   const selects = [...(options.selects ?? [])];
   const inputs = [...(options.inputs ?? [])];
   const confirms = [...(options.confirms ?? [])];
+  const selectCalls = [];
   const ctx = {
     ui: {
       notify(message) {
@@ -160,7 +194,14 @@ function createHarness(options = {}) {
       setStatus() {},
       setWidget() {},
       input: async () => inputs.shift(),
-      select: async (_title, choices) => selects.shift() ?? choices[0],
+      select: async (title, choices) => {
+        selectCalls.push({ title, choices });
+        const requested = selects.shift();
+        if (requested !== undefined) {
+          return choices.find((choice) => stripAnsi(choice).startsWith(requested)) ?? requested;
+        }
+        return choices.find((choice) => stripAnsi(choice).startsWith("Cancel")) ?? choices[0];
+      },
       confirm: async () => confirms.shift() ?? true,
     },
   };
@@ -181,8 +222,13 @@ function createHarness(options = {}) {
       return execCalls;
     },
     notifications,
+    selectCalls,
     pi,
   };
+}
+
+function stripAnsi(value) {
+  return value.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
 function restoreEnv(name, value) {

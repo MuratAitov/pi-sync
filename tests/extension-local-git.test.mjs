@@ -42,7 +42,7 @@ test("extension setup can push to a fresh local bare git remote", async () => {
     await execFileAsync("git", ["init", "--bare", remoteDir]);
 
     const extension = (await import("../dist/index.js")).default;
-    const harness = createHarness({ selects: ["Chat Sync", "Archive"] });
+    const harness = createHarness({ selects: ["Chat Sync", "Archive", "Cancel"] });
     extension(harness.pi);
 
     await harness.commands.get("sync-setup").handler(`${remoteDir} 1440`, harness.ctx);
@@ -90,7 +90,13 @@ function createHarness(options = {}) {
       setStatus() {},
       setWidget() {},
       input: async () => undefined,
-      select: async (_title, choices) => selects.shift() ?? choices[0],
+      select: async (_title, choices) => {
+        const requested = selects.shift();
+        if (requested !== undefined) {
+          return choices.find((choice) => stripAnsi(choice).startsWith(requested)) ?? requested;
+        }
+        return choices.find((choice) => stripAnsi(choice).startsWith("Cancel")) ?? choices[0];
+      },
       confirm: async () => true,
     },
   };
@@ -123,4 +129,8 @@ function createHarness(options = {}) {
 function restoreEnv(name, value) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
+}
+
+function stripAnsi(value) {
+  return value.replace(/\x1b\[[0-9;]*m/g, "");
 }

@@ -25,6 +25,7 @@ export const DEFAULT_POLICY: PathPolicy = {
     "pi-sync-environment-ignore.json",
   ],
   strippedSettingsKeys: ["lastChangelogVersion"],
+  syncLocalPackagePaths: false,
 };
 
 const SECRET_PATTERNS = [

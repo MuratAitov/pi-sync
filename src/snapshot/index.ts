@@ -34,13 +34,25 @@ export async function applySnapshot(config: PiSyncSuiteConfig, piDir: string): P
     if (!(await pathExists(source))) continue;
     const target = resolveInside(piDir, portablePath);
     if (portablePath === "settings.json") {
-      await mergeSettings(source, target, config.policy.strippedSettingsKeys);
+      await mergeSettings(source, target, config);
     } else {
       await replaceSnapshotEntry(source, target);
     }
     applied.push(portablePath);
   }
   return applied;
+}
+
+export async function readSettingsPackages(filePath: string): Promise<string[]> {
+  if (!(await pathExists(filePath))) return [];
+  const settings = JSON.parse(await fs.readFile(filePath, "utf8")) as Record<string, unknown>;
+  return Array.isArray(settings.packages)
+    ? settings.packages.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+export function packageListsDiffer(left: string[], right: string[]): boolean {
+  return JSON.stringify([...left].sort()) !== JSON.stringify([...right].sort());
 }
 
 export function getSnapshotPaths(config: PiSyncSuiteConfig, includeChatExports: boolean): string[] {
@@ -63,7 +75,7 @@ async function copySnapshotEntry(
     return;
   }
   if (portablePath === "settings.json") {
-    await copySettings(source, target, config.policy.strippedSettingsKeys);
+    await copySettings(source, target, config);
     return;
   }
   await copyFileWithSecretScan(source, target, config);
@@ -136,21 +148,51 @@ async function recordSkippedSecret(repoDir: string, source: string, hits: string
   await fs.appendFile(reportPath, JSON.stringify(entry) + "\n", "utf8");
 }
 
-async function copySettings(source: string, target: string, stripKeys: string[]): Promise<void> {
+async function copySettings(source: string, target: string, config: PiSyncSuiteConfig): Promise<void> {
   const settings = JSON.parse(await fs.readFile(source, "utf8")) as Record<string, unknown>;
-  for (const key of stripKeys) delete settings[key];
+  sanitizeSettings(settings, config.policy.strippedSettingsKeys, config.policy.syncLocalPackagePaths);
   await ensureDir(path.dirname(target));
   await fs.writeFile(target, JSON.stringify(settings, null, 2) + "\n", "utf8");
 }
 
-async function mergeSettings(source: string, target: string, stripKeys: string[]): Promise<void> {
+async function mergeSettings(source: string, target: string, config: PiSyncSuiteConfig): Promise<void> {
   const incoming = JSON.parse(await fs.readFile(source, "utf8")) as Record<string, unknown>;
   const local = (await pathExists(target))
     ? (JSON.parse(await fs.readFile(target, "utf8")) as Record<string, unknown>)
     : {};
-  for (const key of stripKeys) delete incoming[key];
+  sanitizeSettings(incoming, config.policy.strippedSettingsKeys, config.policy.syncLocalPackagePaths);
+  const merged = { ...local, ...incoming };
+  if (!config.policy.syncLocalPackagePaths) {
+    mergeLocalPackagePaths(merged, incoming, local);
+  }
   await ensureDir(path.dirname(target));
-  await fs.writeFile(target, JSON.stringify({ ...local, ...incoming }, null, 2) + "\n", "utf8");
+  await fs.writeFile(target, JSON.stringify(merged, null, 2) + "\n", "utf8");
+}
+
+function sanitizeSettings(settings: Record<string, unknown>, stripKeys: string[], keepLocalPackagePaths: boolean): void {
+  for (const key of stripKeys) delete settings[key];
+  if (keepLocalPackagePaths) return;
+  if (!Array.isArray(settings.packages)) return;
+  settings.packages = settings.packages.filter((item) => typeof item === "string" && isPortablePackageSpec(item));
+}
+
+function isPortablePackageSpec(value: string): boolean {
+  return /^(?:npm|pi):/.test(value);
+}
+
+function mergeLocalPackagePaths(
+  merged: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+  local: Record<string, unknown>,
+): void {
+  if (!Array.isArray(incoming.packages) || !Array.isArray(local.packages)) return;
+  const next = incoming.packages.filter((item): item is string => typeof item === "string");
+  for (const item of local.packages) {
+    if (typeof item === "string" && !isPortablePackageSpec(item) && !next.includes(item)) {
+      next.push(item);
+    }
+  }
+  merged.packages = next;
 }
 
 async function writeRepoGitignore(config: PiSyncSuiteConfig): Promise<void> {

@@ -34,6 +34,32 @@ Runtime setup happens inside Pi:
 
 Use an SSH Git remote such as `git@github.com:you/pi-config.git`. HTTPS remotes are rejected so the extension can run Git with `GIT_TERMINAL_PROMPT=0` and avoid interactive credential prompts.
 
+Before running `/sync-setup` on a new machine, make sure GitHub SSH auth works:
+
+```bash
+ssh -T git@github.com
+```
+
+If it prints `Permission denied (publickey)`, add a public key to GitHub. If a key already exists:
+
+```bash
+ls ~/.ssh/*.pub
+pbcopy < ~/.ssh/id_ed25519.pub
+```
+
+Then open GitHub -> Settings -> SSH and GPG keys -> New SSH key, paste the key, and retry `ssh -T git@github.com`. If no public key exists, create one first:
+
+```bash
+ssh-keygen -t ed25519 -C "you@example.com"
+pbcopy < ~/.ssh/id_ed25519.pub
+```
+
+On Linux use `xclip`/`wl-copy` or copy the file contents manually. On Windows, use PowerShell:
+
+```powershell
+Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub | Set-Clipboard
+```
+
 The optional pull interval defaults to `1440` minutes. The extension stores its local state under the Pi agent directory, which defaults to `~/.pi/agent` unless `PI_CODING_AGENT_DIR` is set.
 
 ## Commands
@@ -51,7 +77,8 @@ Everything else is configured inside `/sync-settings` so the Pi command list sta
 - `Config Paths [n]` - number of extra optional paths included
 - `Cleanup [manual/auto]` - current cleanup apply mode
 - `Backups [n backups]` - local restore points
-- `Environment` - restore npm/Pi packages from a synced manifest
+- `Environment Tools [manual/auto prompt]` - optional extra tool restore from a synced manifest
+- `Local Packages [off/on]` - whether to sync local path entries from `settings.json.packages`
 - `Diagnostics` - doctor / diff / log
 
 Inside a settings section, `Cancel [back]` or `Back [back]` returns to the main settings menu. `Cancel` on the main menu closes settings. Descriptions are shown in dim terminal text and explain what the current setting or selectable action does.
@@ -98,6 +125,8 @@ By default, only portable Pi configuration is staged:
 
 `settings.json` is copied without `lastChangelogVersion`. On restore, incoming settings are merged over local settings instead of replacing the whole file.
 
+Pi itself handles portable package entries in `settings.json.packages`, such as `npm:pi-lens`, after the settings file changes and Pi reloads. Pi Sync keeps those entries synced, but strips local path package entries like `../../pi-sync/src` or `/Users/me/dev/package` by default because they usually break on another machine. Enable `/sync-settings` -> `Local Packages` only when every synced device has the same local paths.
+
 Before upload, files are scanned for common secret-like patterns such as private keys, GitHub personal access tokens, OpenAI-style keys, and obvious `api_key`, `token`, `password`, or `secret` assignments. Matching files stop the push. Symlinks are refused.
 
 The sync repository also receives a managed `.gitignore` that excludes machine-local and sensitive names.
@@ -115,13 +144,13 @@ Paths are normalized to portable forward-slash form and must stay inside the Pi 
 
 The same screen also has manual include and exclude actions for advanced users.
 
-## Environment Restore
+## Environment Tools
 
-Use `/sync-settings` -> `Environment`.
+Use `/sync-settings` -> `Environment Tools`.
 
-Environment restore reads `pi-sync-environment.json` from the Pi agent directory. That file is part of the safe sync snapshot, so a new machine can pull it and then check which packages are missing locally.
+Environment Tools reads `pi-sync-environment.json` from the Pi agent directory. That file is part of the safe sync snapshot, so a new machine can pull it and then check which extra tools are missing locally.
 
-After a manual `/sync-pull`, setup pull, or session-start pull, Pi Sync checks this manifest and offers Environment Restore if packages are missing. Background interval pulls do not open an install prompt.
+The automatic prompt after manual `/sync-pull`, setup pull, or session-start pull is off by default because Pi already restores package entries from `settings.json.packages`. Turn on `/sync-settings` -> `Environment Tools` -> `Auto Prompt` only if you use `pi-sync-environment.json` for extra global tools outside Pi's normal package list. Background interval pulls never open an install prompt.
 
 Example:
 
@@ -141,6 +170,7 @@ Example:
 - `Install Missing`: shows the plan, then lets you install all missing packages or one selected package.
 - `Ignore Missing`: hides one missing package on this device.
 - `Clear Ignored`: removes the local ignore list so missing packages show again.
+- `Auto Prompt`: asks after pull only when this optional tool manifest has missing packages.
 
 Ignored packages are stored in `pi-sync-environment-ignore.json`. That file is local-only and is not synced, so skipping a package on one machine does not hide it on another machine.
 

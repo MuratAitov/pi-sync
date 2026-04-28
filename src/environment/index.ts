@@ -118,7 +118,7 @@ export async function loadIgnoredEnvironmentPackages(piDir: string): Promise<Set
 export function formatEnvironmentRestorePlan(plan: EnvironmentRestorePlan): string {
   if (plan.packages.length === 0) {
     return [
-      "Environment restore",
+      "Environment tools",
     "",
     `Manifest: ${plan.manifestPath}`,
     `Ignored: ${plan.ignorePath}`,
@@ -127,7 +127,7 @@ export function formatEnvironmentRestorePlan(plan: EnvironmentRestorePlan): stri
   }
 
   const lines = [
-    "Environment restore",
+    "Environment tools",
     "",
     `Manifest: ${plan.manifestPath}`,
     `Ignored: ${plan.ignorePath}`,

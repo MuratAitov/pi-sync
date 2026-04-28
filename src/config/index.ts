@@ -22,6 +22,9 @@ export function createDefaultConfig(repoUrl: string, paths: SyncPaths = getDefau
       exportFormat: "both",
       includeMetadata: true,
     },
+    environment: {
+      autoPromptAfterPull: false,
+    },
     retention: {
       keepChatExports: 100,
       keepBackups: 20,
@@ -77,6 +80,7 @@ function normalizeConfig(raw: Partial<PiSyncSuiteConfig>, paths: SyncPaths): PiS
     repoUrl: raw.repoUrl ?? defaults.repoUrl,
     repoDir: raw.repoDir ?? defaults.repoDir,
     chat: { ...defaults.chat, ...raw.chat },
+    environment: { ...defaults.environment, ...raw.environment },
     retention: { ...defaults.retention, ...raw.retention },
     policy: {
       ...defaults.policy,
@@ -90,6 +94,7 @@ function normalizeConfig(raw: Partial<PiSyncSuiteConfig>, paths: SyncPaths): PiS
       neverSyncNames: raw.policy?.neverSyncNames ?? defaults.policy.neverSyncNames,
       dangerouslyAllowedNames: raw.policy?.dangerouslyAllowedNames ?? defaults.policy.dangerouslyAllowedNames,
       strippedSettingsKeys: raw.policy?.strippedSettingsKeys ?? defaults.policy.strippedSettingsKeys,
+      syncLocalPackagePaths: raw.policy?.syncLocalPackagePaths ?? defaults.policy.syncLocalPackagePaths,
     },
   };
 }

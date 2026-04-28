@@ -3,5 +3,6 @@ node_modules/
 *.log
 .DS_Store
 .codex
+.pi-lens/
 PI_SYNC_SUITE_PLAN_RU_EN.md
 pi-research-best-practices-for-a-nodejstypescript-extension-s7.md

@@ -35,7 +35,11 @@ test("initial clone applies remote snapshot into a clean Pi directory", async ()
     const sourceConfig = createDefaultConfig(remoteDir, sourcePaths);
     sourceConfig.chat.autoUpload = false;
     await mkdir(sourcePiDir, { recursive: true });
-    await writeFile(path.join(sourcePiDir, "settings.json"), JSON.stringify({ theme: "dark" }), "utf8");
+    await writeFile(
+      path.join(sourcePiDir, "settings.json"),
+      JSON.stringify({ theme: "dark", packages: ["npm:pi-lens"] }),
+      "utf8",
+    );
     await writeFile(path.join(sourcePiDir, "keybindings.json"), JSON.stringify({ save: "ctrl+s" }), "utf8");
     await pushSnapshot(pi, sourceConfig);
 
@@ -49,8 +53,10 @@ test("initial clone applies remote snapshot into a clean Pi directory", async ()
 
     assert.equal(summary.changed, true);
     assert.match(summary.message, /cloned remote/);
+    assert.match(summary.message, /packages changed; reload Pi/);
     assert.deepEqual(JSON.parse(await readFile(path.join(targetPiDir, "settings.json"), "utf8")), {
       theme: "dark",
+      packages: ["npm:pi-lens"],
     });
     assert.deepEqual(JSON.parse(await readFile(path.join(targetPiDir, "keybindings.json"), "utf8")), {
       save: "ctrl+s",

@@ -135,7 +135,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     startBackgroundWork(ctx);
     if (isAutoPullEnabled(config)) {
       await queueOperation("session start pull", () => pullSnapshot(pi, config), ctx)
-        .then(() => maybePromptEnvironmentRestore("pull", ctx))
+        .then(() => maybePromptEnvironmentRestore("pull", ctx, config))
         .catch(() => undefined);
     }
   });
@@ -172,7 +172,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       try {
         ctx.ui.notify(`pi-sync setup: checking ${repoUrl}`, "info");
         await queueOperation("setup pull", () => pullSnapshot(pi, config), ctx);
-        await maybePromptEnvironmentRestore("setup pull", ctx);
+        await maybePromptEnvironmentRestore("setup pull", ctx, config);
         await queueOperation("setup push", () => pushSnapshot(pi, config), ctx);
         await saveAndRefresh(config, ctx);
         ctx.ui.notify(`pi-sync configured: ${repoUrl}`, "info");
@@ -201,7 +201,7 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       if (!config) return;
       const summary = await queueOperation("manual pull", () => pullSnapshot(pi, config), ctx);
       ctx.ui.notify(summary.message, "info");
-      await maybePromptEnvironmentRestore("manual pull", ctx);
+      await maybePromptEnvironmentRestore("manual pull", ctx, config);
     },
   });
 
@@ -243,7 +243,9 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       } else if (sectionKey === "Backups") {
         await runBackupSettings(requiredConfig, ctx);
       } else if (sectionKey === "Environment") {
-        await runEnvironmentSettings(ctx);
+        await runEnvironmentSettings(requiredConfig, ctx);
+      } else if (sectionKey === "Local Packages") {
+        await runLocalPackageSettings(requiredConfig, ctx);
       } else if (sectionKey === "Diagnostics") {
         await runDiagnosticsSettings(requiredConfig, ctx);
       }
@@ -379,9 +381,19 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     ctx.ui.notify(log || "pi-sync: no commits", "info");
   }
 
-  async function runEnvironmentSettings(ctx: RuntimeContext): Promise<void> {
-    const selected = cleanChoice(await ctx.ui.select?.("Environment restore", buildEnvironmentChoices()));
+  async function runEnvironmentSettings(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
+    const selected = cleanChoice(await ctx.ui.select?.("Environment tools", buildEnvironmentChoices(config)));
     if (!selected || selected.startsWith("Cancel") || selected.startsWith("Back")) return;
+
+    if (selected.startsWith("Auto Prompt")) {
+      config.environment.autoPromptAfterPull = !config.environment.autoPromptAfterPull;
+      await saveAndRefresh(config, ctx);
+      ctx.ui.notify(
+        `pi-sync: environment tools auto prompt ${config.environment.autoPromptAfterPull ? "enabled" : "disabled"}`,
+        "info",
+      );
+      return;
+    }
 
     const plan = await queueOperation("environment check", () => planEnvironmentRestore(pi, paths.piDir), ctx);
     if (selected.startsWith("Check")) {
@@ -405,13 +417,32 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     await promptInstallEnvironmentPackages(plan, ctx, "environment menu");
   }
 
-  async function maybePromptEnvironmentRestore(reason: string, ctx: RuntimeContext): Promise<void> {
+  async function runLocalPackageSettings(config: PiSyncSuiteConfig, ctx: RuntimeContext): Promise<void> {
+    const enable = !config.policy.syncLocalPackagePaths;
+    if (enable) {
+      const confirmed = await ctx.ui.confirm?.(
+        "Sync local package paths?",
+        "Local entries like ../../pi-sync/src usually exist only on one machine. Enable this only when every synced device has the same paths.",
+      );
+      if (!confirmed) return;
+    }
+    config.policy.syncLocalPackagePaths = enable;
+    await saveAndRefresh(config, ctx);
+    ctx.ui.notify(`pi-sync: local package path sync ${enable ? "enabled" : "disabled"}`, "info");
+  }
+
+  async function maybePromptEnvironmentRestore(
+    reason: string,
+    ctx: RuntimeContext,
+    config: PiSyncSuiteConfig,
+  ): Promise<void> {
     if (!ctx.ui.select) return;
+    if (!config.environment.autoPromptAfterPull) return;
     const plan = await queueOperation("environment check", () => planEnvironmentRestore(pi, paths.piDir), ctx);
     const missing = missingEnvironmentCount(plan);
     if (missing === 0) return;
-    ctx.ui.notify(`pi-sync: ${missing} environment package(s) missing after ${reason}`, "warning");
-    const action = cleanChoice(await ctx.ui.select?.("Environment restore", [
+    ctx.ui.notify(`pi-sync: ${missing} environment tool package(s) missing after ${reason}`, "warning");
+    const action = cleanChoice(await ctx.ui.select?.("Environment tools", [
       menuLine("Install Missing", String(missing), "choose all or one package"),
       menuLine("Ignore Missing", undefined, "hide one package on this device"),
       menuLine("Skip", "later", "ask again later"),
@@ -594,6 +625,7 @@ type SettingsSection =
   | "Cleanup"
   | "Backups"
   | "Environment"
+  | "Local Packages"
   | "Diagnostics"
   | "Cancel";
 
@@ -606,7 +638,8 @@ async function buildSettingsSections(config: PiSyncSuiteConfig | null): Promise<
     menuLine("Config Paths", config ? String(config.policy.includedPaths.length) : "0", "optional extra paths"),
     menuLine("Cleanup", config?.retention.autoApply ? "auto" : "manual", cleanupSummary(config)),
     menuLine("Backups", backupCount === 1 ? "1 backup" : `${backupCount} backups`, "local restore points"),
-    menuLine("Environment", undefined, "restore npm/Pi packages"),
+    menuLine("Environment Tools", config?.environment.autoPromptAfterPull ? "auto prompt" : "manual", "extra npm/Pi tools"),
+    menuLine("Local Packages", config?.policy.syncLocalPackagePaths ? "on" : "off", "sync local package paths"),
     menuLine("Diagnostics", undefined, "doctor / diff / log"),
     "Cancel",
   ];
@@ -650,12 +683,13 @@ async function buildBackupChoices(): Promise<string[]> {
   ];
 }
 
-function buildEnvironmentChoices(): string[] {
+function buildEnvironmentChoices(config: PiSyncSuiteConfig): string[] {
   return [
     menuLine("Check Missing", undefined, "show packages not installed here"),
     menuLine("Install Missing", undefined, "choose all or one package"),
     menuLine("Ignore Missing", undefined, "hide one package on this device"),
     menuLine("Clear Ignored", undefined, "show ignored packages again"),
+    menuLine("Auto Prompt", config.environment.autoPromptAfterPull ? "on" : "off", "ask after pull"),
     menuLine("Back", "back", "return to main menu"),
   ];
 }
@@ -680,6 +714,7 @@ function parseSectionChoice(value: string | undefined): SettingsSection | undefi
   if (clean.startsWith("Cleanup")) return "Cleanup";
   if (clean.startsWith("Backups")) return "Backups";
   if (clean.startsWith("Environment")) return "Environment";
+  if (clean.startsWith("Local Packages")) return "Local Packages";
   if (clean.startsWith("Diagnostics")) return "Diagnostics";
   if (clean.startsWith("Cancel")) return "Cancel";
   return undefined;

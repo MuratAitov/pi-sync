@@ -24,6 +24,7 @@ test("snapshot strips machine-local settings keys and merges downloaded settings
           theme: "dark",
           lastChangelogVersion: "2026.04.01",
           nested: { keep: true },
+          packages: ["npm:pi-lens", "../../pi-sync/src", "/Users/me/pi-local"],
         },
         null,
         2,
@@ -36,7 +37,7 @@ test("snapshot strips machine-local settings keys and merges downloaded settings
 
     assert.deepEqual(staged, ["keybindings.json", "pi-sync-environment.json", "prompts", "settings.json", "skills", "themes"]);
     const repoSettings = JSON.parse(await readFile(path.join(paths.repoDir, "settings.json"), "utf8"));
-    assert.deepEqual(repoSettings, { theme: "dark", nested: { keep: true } });
+    assert.deepEqual(repoSettings, { theme: "dark", nested: { keep: true }, packages: ["npm:pi-lens"] });
 
     await writeFile(
       path.join(piDir, "settings.json"),
@@ -45,6 +46,7 @@ test("snapshot strips machine-local settings keys and merges downloaded settings
           theme: "local",
           localOnly: "preserved",
           lastChangelogVersion: "local-version",
+          packages: ["npm:local-removed-by-remote", "../../local-dev/src"],
         },
         null,
         2,
@@ -58,6 +60,7 @@ test("snapshot strips machine-local settings keys and merges downloaded settings
           theme: "remote",
           remoteOnly: true,
           lastChangelogVersion: "remote-version",
+          packages: ["npm:pi-subagents", "../../other-device/src"],
         },
         null,
         2,
@@ -74,7 +77,32 @@ test("snapshot strips machine-local settings keys and merges downloaded settings
       localOnly: "preserved",
       lastChangelogVersion: "local-version",
       remoteOnly: true,
+      packages: ["npm:pi-subagents", "../../local-dev/src"],
     });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("local package paths are synced only when explicitly enabled", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-local-packages-"));
+  try {
+    const piDir = path.join(root, "agent");
+    const paths = getDefaultPaths(piDir);
+    const config = createDefaultConfig("git@example.com:team/pi-config.git", paths);
+    config.policy.syncLocalPackagePaths = true;
+
+    await mkdir(piDir, { recursive: true });
+    await writeFile(
+      path.join(piDir, "settings.json"),
+      JSON.stringify({ packages: ["npm:pi-lens", "../../pi-sync/src"] }, null, 2),
+      "utf8",
+    );
+
+    await stageSnapshot(config, piDir);
+
+    const repoSettings = JSON.parse(await readFile(path.join(paths.repoDir, "settings.json"), "utf8"));
+    assert.deepEqual(repoSettings.packages, ["npm:pi-lens", "../../pi-sync/src"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

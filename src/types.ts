@@ -60,6 +60,7 @@ export interface PathPolicy {
   neverSyncNames: string[];
   dangerouslyAllowedNames: string[];
   strippedSettingsKeys: string[];
+  syncLocalPackagePaths: boolean;
 }
 
 export interface ChatSyncConfig {
@@ -71,6 +72,10 @@ export interface ChatSyncConfig {
   includeMetadata: boolean;
 }
 
+export interface EnvironmentToolsConfig {
+  autoPromptAfterPull: boolean;
+}
+
 export interface PiSyncSuiteConfig {
   version: 1;
   repoUrl: string;
@@ -80,6 +85,7 @@ export interface PiSyncSuiteConfig {
   pushDebounceMs: number;
   watchIntervalMs: number;
   chat: ChatSyncConfig;
+  environment: EnvironmentToolsConfig;
   retention: RetentionPolicy;
   policy: PathPolicy;
   lastConfigSyncAt?: string;

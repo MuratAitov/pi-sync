@@ -112,6 +112,8 @@ test("settings menu shows current values and submenu cancel returns to main menu
     assert.ok(mainChoices.some((choice) => /^View Status - current setup/.test(choice)));
     assert.ok(mainChoices.some((choice) => /^Sync Mode \[manual\].*push\/pull only when commanded/.test(choice)));
     assert.ok(mainChoices.some((choice) => /^Chat History \[off\].*skip chats/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Environment Tools \[manual\].*extra npm\/Pi tools/.test(choice)));
+    assert.ok(mainChoices.some((choice) => /^Local Packages \[off\].*sync local package paths/.test(choice)));
     assert.ok(mainChoices.some((choice) => /^Diagnostics - doctor \/ diff \/ log/.test(choice)));
     assert.deepEqual(
       harness.selectCalls.map((call) => call.title),
@@ -225,7 +227,7 @@ test("settings environment restore installs missing packages after confirmation"
 
     await harness.commands.get("sync-settings").handler("", harness.ctx);
 
-    assert.ok(harness.selectCalls[0].choices.map(stripAnsi).some((choice) => /^Environment - restore npm\/Pi packages/.test(choice)));
+    assert.ok(harness.selectCalls[0].choices.map(stripAnsi).some((choice) => /^Environment Tools \[manual\].*extra npm\/Pi tools/.test(choice)));
     assert.match(harness.notifications.join("\n"), /npm:typescript@5\.8\.0 \[missing\]/);
     assert.match(harness.notifications.join("\n"), /pi:npm:@team\/pi-extension \[missing\]/);
     assert.match(harness.notifications.join("\n"), /installed 2 environment package/);
@@ -233,6 +235,37 @@ test("settings environment restore installs missing packages after confirmation"
       ["npm", ["install", "-g", "typescript@5.8.0"]],
       ["pi", ["install", "npm:@team/pi-extension"]],
     ]);
+  } finally {
+    restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("settings can enable environment prompts and local package path sync", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-settings-package-flags-"));
+  const previousPiDir = process.env.PI_CODING_AGENT_DIR;
+  try {
+    const piDir = path.join(root, "agent");
+    process.env.PI_CODING_AGENT_DIR = piDir;
+    const { createDefaultConfig, saveConfig } = await import("../dist/config/index.js");
+    const { getDefaultPaths } = await import("../dist/utils/paths.js");
+    const paths = getDefaultPaths(piDir);
+    await saveConfig(createDefaultConfig("git@example.com:team/pi-config.git", paths), paths);
+
+    const extension = (await import("../dist/index.js")).default;
+    const harness = createHarness({
+      selects: ["Environment", "Auto Prompt", "Local Packages", "Cancel"],
+      confirms: [true],
+    });
+    extension(harness.pi);
+
+    await harness.commands.get("sync-settings").handler("", harness.ctx);
+
+    const config = JSON.parse(await readFile(path.join(piDir, "pi-sync-suite.json"), "utf8"));
+    assert.equal(config.environment.autoPromptAfterPull, true);
+    assert.equal(config.policy.syncLocalPackagePaths, true);
+    assert.match(harness.notifications.join("\n"), /environment tools auto prompt enabled/);
+    assert.match(harness.notifications.join("\n"), /local package path sync enabled/);
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     await rm(root, { recursive: true, force: true });
@@ -248,7 +281,9 @@ test("manual pull offers environment restore and can install one selected packag
     const { createDefaultConfig, saveConfig } = await import("../dist/config/index.js");
     const { getDefaultPaths } = await import("../dist/utils/paths.js");
     const paths = getDefaultPaths(piDir);
-    await saveConfig(createDefaultConfig("git@example.com:team/pi-config.git", paths), paths);
+    const config = createDefaultConfig("git@example.com:team/pi-config.git", paths);
+    config.environment.autoPromptAfterPull = true;
+    await saveConfig(config, paths);
     await writeFile(
       path.join(piDir, "pi-sync-environment.json"),
       JSON.stringify({ npm: ["typescript@5.8.0", "prettier"] }),
@@ -275,7 +310,7 @@ test("manual pull offers environment restore and can install one selected packag
 
     await harness.commands.get("sync-pull").handler("", harness.ctx);
 
-    assert.match(harness.notifications.join("\n"), /environment package\(s\) missing after manual pull/);
+    assert.match(harness.notifications.join("\n"), /environment tool package\(s\) missing after manual pull/);
     assert.match(harness.notifications.join("\n"), /installed 1 environment package/);
     assert.deepEqual(execCalls.filter(([command, args]) => command === "npm" && args[0] === "install"), [
       ["npm", ["install", "-g", "prettier"]],

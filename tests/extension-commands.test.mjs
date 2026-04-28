@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -305,6 +305,82 @@ test("setup rejects unsafe or invalid inputs before git execution", async () => 
     assert.match(harness.notifications.join("\n"), /positive number/);
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("setup failure rolls back config and explains SSH auth failures", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-setup-rollback-"));
+  const previousPiDir = process.env.PI_CODING_AGENT_DIR;
+  const previousHome = process.env.HOME;
+  try {
+    const piDir = path.join(root, "agent");
+    process.env.PI_CODING_AGENT_DIR = piDir;
+    process.env.HOME = path.join(root, "home");
+    const extension = (await import("../dist/index.js")).default;
+    const harness = createHarness({
+      exec: async (command, args) => {
+        if (command === "git" && args[0] === "clone") {
+          return {
+            code: 128,
+            stdout: "",
+            stderr: "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.",
+          };
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    extension(harness.pi);
+
+    await harness.commands.get("sync-setup").handler("git@github.com:MuratAitov/pi-config.git 1440", harness.ctx);
+
+    await assert.rejects(() => readFile(path.join(piDir, "pi-sync-suite.json"), "utf8"), /ENOENT/);
+    assert.match(harness.notifications.join("\n"), /setup failed/);
+    assert.match(harness.notifications.join("\n"), /ssh -T git@github\.com/);
+    assert.match(harness.notifications.join("\n"), /No SSH public key was found/);
+    assert.match(harness.notifications.join("\n"), /ssh-keygen -t ed25519/);
+    assert.doesNotMatch(harness.notifications.join("\n"), /pi-sync configured:/);
+  } finally {
+    restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
+    restoreEnv("HOME", previousHome);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("setup failure points at an existing SSH public key when one is available", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-setup-keyhint-"));
+  const previousPiDir = process.env.PI_CODING_AGENT_DIR;
+  const previousHome = process.env.HOME;
+  try {
+    const piDir = path.join(root, "agent");
+    const home = path.join(root, "home");
+    process.env.PI_CODING_AGENT_DIR = piDir;
+    process.env.HOME = home;
+    await mkdir(path.join(home, ".ssh"), { recursive: true });
+    await writeFile(path.join(home, ".ssh", "id_ed25519.pub"), "ssh-ed25519 AAAATEST pi-sync\n", "utf8");
+    const extension = (await import("../dist/index.js")).default;
+    const harness = createHarness({
+      exec: async (command, args) => {
+        if (command === "git" && args[0] === "clone") {
+          return {
+            code: 128,
+            stdout: "",
+            stderr: "git@github.com: Permission denied (publickey).",
+          };
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    extension(harness.pi);
+
+    await harness.commands.get("sync-setup").handler("git@github.com:MuratAitov/pi-config.git 1440", harness.ctx);
+
+    assert.match(harness.notifications.join("\n"), /Found SSH public key: ~\/\.ssh\/id_ed25519\.pub/);
+    assert.match(harness.notifications.join("\n"), /pbcopy < ~\/\.ssh\/id_ed25519\.pub/);
+    assert.doesNotMatch(harness.notifications.join("\n"), /No SSH public key was found/);
+  } finally {
+    restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
+    restoreEnv("HOME", previousHome);
     await rm(root, { recursive: true, force: true });
   }
 });

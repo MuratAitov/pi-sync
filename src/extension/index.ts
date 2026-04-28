@@ -1,6 +1,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { AutoSyncMode, PiSyncSuiteConfig } from "../types.js";
-import { createDefaultConfig, isAutoPullEnabled, isAutoPushEnabled, loadConfig, saveConfig } from "../config/index.js";
+import { createDefaultConfig, deleteConfig, isAutoPullEnabled, isAutoPushEnabled, loadConfig, saveConfig } from "../config/index.js";
 import { getDefaultPaths, normalizePortablePath } from "../utils/paths.js";
 import { getOptionalStoreChoices, shouldNeverSync } from "../snapshot/policy.js";
 import { pushSnapshot, pullSnapshot } from "../engine/syncEngine.js";
@@ -165,12 +168,19 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
       const config = createDefaultConfig(repoUrl, paths);
       config.pullIntervalMinutes = interval;
       setChatSyncMode(config, "Off");
-      await saveAndRefresh(config, ctx);
-      ctx.ui.notify(`pi-sync configured: ${repoUrl}`, "info");
-      await queueOperation("setup pull", () => pullSnapshot(pi, config), ctx);
-      await maybePromptEnvironmentRestore("setup pull", ctx);
-      await queueOperation("setup push", () => pushSnapshot(pi, config), ctx);
-      startBackgroundWork(ctx);
+      const previousConfig = await currentConfig();
+      try {
+        ctx.ui.notify(`pi-sync setup: checking ${repoUrl}`, "info");
+        await queueOperation("setup pull", () => pullSnapshot(pi, config), ctx);
+        await maybePromptEnvironmentRestore("setup pull", ctx);
+        await queueOperation("setup push", () => pushSnapshot(pi, config), ctx);
+        await saveAndRefresh(config, ctx);
+        ctx.ui.notify(`pi-sync configured: ${repoUrl}`, "info");
+        startBackgroundWork(ctx);
+      } catch (error) {
+        await restoreSetupState(previousConfig, config);
+        ctx.ui.notify(await formatSetupFailure(repoUrl, error), "error");
+      }
     },
   });
 
@@ -524,6 +534,21 @@ export default function piSyncSuite(pi: ExtensionAPI): void {
     ctx?.ui.setWidget?.("pi-sync", formatStatusWidget(config), { placement: "belowEditor" });
   }
 
+  async function restoreSetupState(
+    previousConfig: PiSyncSuiteConfig | null,
+    attemptedConfig: PiSyncSuiteConfig,
+  ): Promise<void> {
+    stopBackgroundWork();
+    if (previousConfig) {
+      await saveConfig(previousConfig, paths);
+      configPromise = Promise.resolve(previousConfig);
+      return;
+    }
+    await deleteConfig(paths);
+    configPromise = Promise.resolve(null);
+    await fs.rm(attemptedConfig.repoDir, { recursive: true, force: true });
+  }
+
   async function requireConfig(ctx: RuntimeContext): Promise<PiSyncSuiteConfig | null> {
     const config = await currentConfig();
     if (!config) {
@@ -778,4 +803,77 @@ function addUnique(values: string[], value: string): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function formatSetupFailure(repoUrl: string, error: unknown): Promise<string> {
+  const message = errorMessage(error);
+  const hints = [
+    `pi-sync setup failed for ${repoUrl}`,
+    "",
+    message,
+  ];
+  if (/publickey|permission denied/i.test(message)) {
+    const publicKeys = await findSshPublicKeys();
+    hints.push(
+      "",
+      "GitHub SSH is not ready on this machine.",
+      "",
+      "First check:",
+      "  ssh -T git@github.com",
+    );
+    if (publicKeys.length > 0) {
+      const firstKey = publicKeys[0];
+      hints.push(
+        "",
+        `Found SSH public key: ${firstKey.displayPath}`,
+        "Add it to GitHub:",
+        "  1. Copy it on macOS:",
+        `     pbcopy < ${firstKey.displayPath}`,
+        "  2. Open https://github.com/settings/keys",
+        "  3. New SSH key -> paste -> save",
+        "",
+        "Then retry /sync-setup.",
+      );
+    } else {
+      hints.push(
+        "",
+        "No SSH public key was found.",
+        "Create one on macOS:",
+        "  ssh-keygen -t ed25519 -C \"your_email@example.com\"",
+        "  pbcopy < ~/.ssh/id_ed25519.pub",
+        "",
+        "Then open https://github.com/settings/keys, add the key, and retry /sync-setup.",
+      );
+    }
+    hints.push(
+      "",
+      "Optional if GitHub CLI is already logged in:",
+      "  gh ssh-key add ~/.ssh/id_ed25519.pub --title \"pi-sync\"",
+    );
+  } else if (/repository.*not.*exist|not found|could not read from remote repository/i.test(message)) {
+    hints.push(
+      "",
+      "Check that the repository exists and that this machine has access to it.",
+    );
+  }
+  return hints.join("\n");
+}
+
+async function findSshPublicKeys(): Promise<Array<{ displayPath: string; absolutePath: string }>> {
+  const home = os.homedir();
+  const sshDir = path.join(home, ".ssh");
+  const names = ["id_ed25519.pub", "id_ecdsa.pub", "id_rsa.pub"];
+  const keys: Array<{ displayPath: string; absolutePath: string }> = [];
+  for (const name of names) {
+    const absolutePath = path.join(sshDir, name);
+    try {
+      const stat = await fs.stat(absolutePath);
+      if (stat.isFile()) {
+        keys.push({ absolutePath, displayPath: `~/.ssh/${name}` });
+      }
+    } catch {
+      // Missing public keys are expected on new machines.
+    }
+  }
+  return keys;
 }

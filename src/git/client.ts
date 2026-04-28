@@ -38,6 +38,11 @@ export async function push(pi: PiExecApi, repoDir: string): Promise<void> {
   assertOk(await pi.exec("git", ["-C", repoDir, "push", "-u", "origin", "HEAD"], { env: GIT_ENV }), "git push failed");
 }
 
+export async function pushResult(pi: PiExecApi, repoDir: string): Promise<{ ok: boolean; stderr: string }> {
+  const result = await pi.exec("git", ["-C", repoDir, "push", "-u", "origin", "HEAD"], { env: GIT_ENV });
+  return { ok: result.code === 0, stderr: result.stderr };
+}
+
 export async function fetch(pi: PiExecApi, repoDir: string): Promise<void> {
   assertOk(await pi.exec("git", ["-C", repoDir, "fetch", "--quiet"], { env: GIT_ENV }), "git fetch failed");
 }
@@ -74,6 +79,18 @@ export async function pullFastForward(pi: PiExecApi, repoDir: string): Promise<v
     await pi.exec("git", ["-C", repoDir, "pull", "--ff-only"], { env: GIT_ENV }),
     "git pull --ff-only failed",
   );
+}
+
+export async function pullRebase(pi: PiExecApi, repoDir: string): Promise<void> {
+  const result = await pi.exec("git", ["-C", repoDir, "pull", "--rebase"], { env: GIT_ENV });
+  if (result.code !== 0) {
+    await pi.exec("git", ["-C", repoDir, "rebase", "--abort"], { env: GIT_ENV });
+    throw new Error(result.stderr?.trim() || "git pull --rebase failed");
+  }
+}
+
+export function isNonFastForwardPush(stderr: string): boolean {
+  return /non-fast-forward|fetch first|rejected.*HEAD|Updates were rejected/i.test(stderr);
 }
 
 export async function diffStat(pi: PiExecApi, repoDir: string): Promise<string> {

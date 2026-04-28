@@ -52,6 +52,10 @@ export async function saveConfig(config: PiSyncSuiteConfig, paths: SyncPaths = g
   await fs.writeFile(paths.configFile, JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
+export async function deleteConfig(paths: SyncPaths = getDefaultPaths()): Promise<void> {
+  await fs.rm(paths.configFile, { force: true });
+}
+
 export function isAutoPushEnabled(config: PiSyncSuiteConfig): boolean {
   return config.autoMode === "full-auto" || config.autoMode === "config-only-auto";
 }

@@ -4,7 +4,15 @@ Cross-platform Pi extension for syncing portable Pi configuration, exporting cha
 
 This package is intentionally implemented from scratch. It is inspired by the idea of config sync, but it does not reuse third-party extension code.
 
-## Install And Development Workflow
+## Install
+
+Install from npm in Pi:
+
+```bash
+pi install npm:pi-sync-suite
+```
+
+## Local Development
 
 Requires Node.js 20 or newer.
 
@@ -24,7 +32,17 @@ npm run e2e:two-pi-sessions -- --remote git@github.com:you/private-test-repo.git
 
 The GitHub mode uses a temporary `pi-sync-e2e-*` branch and deletes it after a successful run unless `--keep-remote-branch` is passed.
 
-Pi loads the extension from `./src/index.ts` through the `pi.extensions` entry in `package.json`.
+Pi loads the published extension from `./dist/index.js` through the `pi.extensions` entry in `package.json`.
+
+If you want to work from a local checkout instead of the published npm package:
+
+```bash
+git clone https://github.com/MuratAitov/pi-sync.git
+cd pi-sync
+npm install
+npm run build
+pi install .
+```
 
 Runtime setup happens inside Pi:
 

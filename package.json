@@ -15,7 +15,7 @@
     "build": "npm run clean && tsc -p tsconfig.json",
     "clean": "node scripts/clean.mjs",
     "e2e:two-pi-sessions": "npm run build && node scripts/e2e-two-pi-sessions.mjs",
-    "test": "npm run build && node --test tests/*.test.mjs",
+    "test": "npm run build && node scripts/run-tests.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "keywords": [

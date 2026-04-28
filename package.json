@@ -15,6 +15,8 @@
     "build": "npm run clean && tsc -p tsconfig.json",
     "clean": "node scripts/clean.mjs",
     "e2e:two-pi-sessions": "npm run build && node scripts/e2e-two-pi-sessions.mjs",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test",
     "test": "npm run build && node scripts/run-tests.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -27,6 +29,17 @@
     "chat-export"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MuratAitov/pi-sync.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MuratAitov/pi-sync/issues"
+  },
+  "homepage": "https://github.com/MuratAitov/pi-sync#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },

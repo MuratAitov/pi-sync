@@ -13,7 +13,7 @@ test("exports Pi JSONL sessions to markdown and metadata", async () => {
     const exportsDir = path.join(root, "exports");
     await mkdir(sessionDir, { recursive: true });
     await writeFile(
-      path.join(sessionDir, "chat:one.jsonl"),
+      path.join(sessionDir, "chat-one.jsonl"),
       [
         JSON.stringify({ timestamp: "2026-04-26T10:00:00.000Z", role: "user", content: "hello <world>" }),
         JSON.stringify({ timestamp: "2026-04-26T10:00:01.000Z", role: "assistant", content: [{ text: "hi" }] }),
@@ -31,7 +31,7 @@ test("exports Pi JSONL sessions to markdown and metadata", async () => {
     assert.match(markdown, /hello &lt;world&gt;/);
     assert.match(markdown, /## Assistant/);
     const metadata = JSON.parse(await readFile(results[0].metadataPath, "utf8"));
-    assert.equal(metadata.sourceRelativePath, "2026/04/chat:one.jsonl");
+    assert.equal(metadata.sourceRelativePath, "2026/04/chat-one.jsonl");
     assert.equal(metadata.redactedMessageCount, 0);
     assert.equal(metadata.omittedMessageCount, 0);
     assert.equal(metadata.truncatedMessageCount, 0);

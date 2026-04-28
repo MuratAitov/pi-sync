@@ -348,10 +348,12 @@ test("setup failure rolls back config and explains SSH auth failures", async () 
   const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-setup-rollback-"));
   const previousPiDir = process.env.PI_CODING_AGENT_DIR;
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   try {
     const piDir = path.join(root, "agent");
     process.env.PI_CODING_AGENT_DIR = piDir;
     process.env.HOME = path.join(root, "home");
+    process.env.USERPROFILE = process.env.HOME;
     const extension = (await import("../dist/index.js")).default;
     const harness = createHarness({
       exec: async (command, args) => {
@@ -378,6 +380,7 @@ test("setup failure rolls back config and explains SSH auth failures", async () 
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     restoreEnv("HOME", previousHome);
+    restoreEnv("USERPROFILE", previousUserProfile);
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -386,11 +389,13 @@ test("setup failure points at an existing SSH public key when one is available",
   const root = await mkdtemp(path.join(os.tmpdir(), "pi-sync-setup-keyhint-"));
   const previousPiDir = process.env.PI_CODING_AGENT_DIR;
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   try {
     const piDir = path.join(root, "agent");
     const home = path.join(root, "home");
     process.env.PI_CODING_AGENT_DIR = piDir;
     process.env.HOME = home;
+    process.env.USERPROFILE = home;
     await mkdir(path.join(home, ".ssh"), { recursive: true });
     await writeFile(path.join(home, ".ssh", "id_ed25519.pub"), "ssh-ed25519 AAAATEST pi-sync\n", "utf8");
     const extension = (await import("../dist/index.js")).default;
@@ -416,6 +421,7 @@ test("setup failure points at an existing SSH public key when one is available",
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     restoreEnv("HOME", previousHome);
+    restoreEnv("USERPROFILE", previousUserProfile);
     await rm(root, { recursive: true, force: true });
   }
 });

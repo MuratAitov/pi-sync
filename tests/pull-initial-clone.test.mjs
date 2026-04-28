@@ -117,8 +117,8 @@ test("push integrates remote commits before retrying non-fast-forward upload", a
     assert.deepEqual(JSON.parse(await readFile(path.join(targetPiDir, "keybindings.json"), "utf8")), {
       save: "cmd+s",
     });
-    assert.equal(await readFile(path.join(targetPiDir, "prompts", "remote.md"), "utf8"), "Remote prompt\n");
-    assert.equal(await readFile(path.join(targetPaths.repoDir, "prompts", "remote.md"), "utf8"), "Remote prompt\n");
+    assert.equal(normalizeNewlines(await readFile(path.join(targetPiDir, "prompts", "remote.md"), "utf8")), "Remote prompt\n");
+    assert.equal(normalizeNewlines(await readFile(path.join(targetPaths.repoDir, "prompts", "remote.md"), "utf8")), "Remote prompt\n");
   } finally {
     restoreEnv("PI_CODING_AGENT_DIR", previousPiDir);
     restoreEnv("GIT_AUTHOR_NAME", previousAuthorName);
@@ -152,4 +152,8 @@ function createExecApi() {
 function restoreEnv(name, value) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
+}
+
+function normalizeNewlines(value) {
+  return value.replace(/\r\n/g, "\n");
 }
